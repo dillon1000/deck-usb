@@ -22,7 +22,8 @@ validate_video() {
 # root. The optional installer runs this same supervisor as a system service.
 if [[ ${1:-} == stream ]]; then
     mode=$2
-    # Optional four-value file permits resolution tests without restarting sudo.
+    # A settings file permits resolution tests without restarting sudo; its
+    # optional fifth value selects H.264 quality (20 when absent).
     # Parse data only; never source a desktop-user file into the root shell.
     if [[ -f /run/deckusb-video.conf ]]; then read -r WIDTH HEIGHT FPS FORMAT QUALITY < /run/deckusb-video.conf
     elif [[ -f video.conf ]]; then read -r WIDTH HEIGHT FPS FORMAT QUALITY < video.conf; fi

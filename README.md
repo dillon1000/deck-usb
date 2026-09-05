@@ -30,6 +30,12 @@ development headers and libraries, then run `pnpm build:deck` or
 helper targets the Zen 2 CPU in both Deck models. No prebuilt binary is included.
 Mac and Deck must use matching protocol versions.
 
+GStreamer core, app, and video development libraries enable the optional
+`build/deck-pipewire` helper during the Linux build. It converts Gaming Mode
+capture to NV12 in one process. Without these headers, the build keeps the
+existing GStreamer and FFmpeg capture path. `pnpm test:gst` checks packed and
+padded NV12 layouts when these development libraries are available.
+
 ## Start the Deck
 
 Enable USB dual-role device mode in the firmware and enter Desktop Mode for
@@ -39,8 +45,9 @@ configfs, and uinput support. Gaming Mode also needs GStreamer with PipeWire,
 `pw-dump`, and `jq`. Hardware H.264 requires FFmpeg VAAPI support and an AMD
 render device. Setup checks for these tools; it does not download packages.
 
-Copy the project, including `scripts/`, `assets/`, and both Linux binaries in
-`build/`, to the Deck. Keep the folder layout. As your normal Deck user, run:
+Copy the project, including `scripts/`, `assets/`, the two required Linux
+binaries, and `build/deck-pipewire` if built, to the Deck. Keep the folder layout.
+As your normal Deck user, run:
 
 ```sh
 bash scripts/setup.sh
@@ -78,6 +85,10 @@ viewer's video or audio and does not enable routing or Wi-Fi fallback.
 ## Viewer controls
 
 Display settings select resolution, frame rate, and Uncompressed or H.264 video.
+H.264 has High, Balanced, and Lower bandwidth quality presets. The audio buffer
+setting offers 20 ms (the default), 15 ms, or 12 ms. A lower floor reduces queued
+audio but gives USB and output scheduling less room for interruptions. The
+adaptive buffer can still increase its target after a gap.
 Apply sends settings over USB and restarts capture. Runtime settings are stored
 in `/run/deckusb-video.conf`; the installed service saves them when it stops.
 In Desktop Mode, a larger size
@@ -117,9 +128,10 @@ requires macOS 14 or later. `--sensitivity` scales relative pointer movement.
 
 The default startup values are 1280 × 800, 60 fps, NV12. They are configuration
 defaults, not a claim that a given USB link can sustain them. Select lower values
-or run the cable test when necessary. Set WIDTH, HEIGHT, FPS, and FORMAT through
-`sudo env`, or put four space-separated values in `video.conf`. Applied runtime
-settings take precedence. Files are parsed as data, never executed as shell code.
+or run the cable test when necessary. Set WIDTH, HEIGHT, FPS, FORMAT, and QUALITY
+through `sudo env`, or put these space-separated values in `video.conf`. QUALITY
+is optional and defaults to 20. Applied runtime settings take precedence. Files
+are parsed as data, never executed as shell code.
 
 Even dimensions up to 1920 × 1200 and rates up to 240 fps are validated. Hardware
 may not sustain them. Desktop resizing depends on XRandR support; read the
@@ -128,10 +140,13 @@ capture log if the requested size cannot be applied.
 Native NV12 desktop capture uses X11 shared memory and SIMD CPU conversion,
 without a GPU conversion job. Unsupported layouts and other formats use FFmpeg
 as a fallback. `DECKUSB_SOFTWARE_CONVERSION=1` selects the FFmpeg path for
-comparison. Gaming Mode uses a bounded PipeWire capture queue.
+comparison. Gaming Mode uses a bounded PipeWire capture queue. Its native helper
+handles padded NV12 rows before sending them; `DECKUSB_GST_NATIVE=0` selects the
+GStreamer and FFmpeg path for comparison.
 
 FORMAT accepts `nv12`, `bgra`, or `h264`. H.264 uses independent IDR frames,
-QP 20, no B-frames, and a bounded packet size. Each packet carries SPS/PPS so
+no B-frames, and a bounded packet size. QUALITY accepts QP 20 (High), 24
+(Balanced), or 28 (Lower bandwidth). Each packet carries SPS/PPS so
 stale frames can be dropped safely. The Mac requires hardware VideoToolbox
 decoding. Codec failure restores raw capture at the same size and rate.
 `VAAPI_DEVICE` can select a render node explicitly; otherwise one AMD render
