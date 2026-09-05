@@ -45,6 +45,14 @@ else
 fi
 echo "Capturing $session at $width × $height, $fps fps ($format)." >&2
 if [[ $session == gamescope:* ]]; then
+    native="$(dirname -- "$0")/../build/deck-pipewire"
+    if [[ $format == nv12 && -x $native && ${DECKUSB_GST_NATIVE:-1} == 1 ]]; then
+        result=0
+        "$native" "$sources" "$width" "$height" "$fps" || result=$?
+        # Only startup/loader failures can fall back without mixing frame bytes.
+        if [[ $result != 75 && $result != 126 && $result != 127 ]]; then exit "$result"; fi
+        echo 'Native PipeWire capture is unavailable; using FFmpeg.' >&2
+    fi
     # GStreamer is supplied by SteamOS. One leaky pending frame bounds capture
     # backlog. BGRx rows are always tightly packed, even for widths like 802;
     # NV12 from a generic fdsink can contain padding that raw FFmpeg cannot parse.

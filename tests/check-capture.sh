@@ -78,6 +78,24 @@ export CAPTURE_CHECK_MODE=gamescope
 [[ $(bash "$scratch/scripts/capture.sh" 802 500 90 h264 "$scratch/sizes") == frame ]]
 [[ $(cat "$scratch/gst-args") == *target-object=321* && $(cat "$scratch/gst-args") == *max-size-buffers=1* ]]
 [[ $(cat "$scratch/ffmpeg-args") == *bgr0* && $(cat "$scratch/ffmpeg-args") == *h264_vaapi* && $(cat "$scratch/ffmpeg-args") != *x11grab* ]]
+cat > "$scratch/build/deck-pipewire" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$CAPTURE_CHECK_DIR/pipewire-args"
+result=${CAPTURE_CHECK_PIPEWIRE_RESULT:-0}
+if [[ $result == 0 ]]; then printf 'packed'; fi
+exit "$result"
+EOF
+chmod +x "$scratch/build/deck-pipewire"
+rm -f "$scratch/ffmpeg-args" "$scratch/gst-args"
+[[ $(bash "$scratch/scripts/capture.sh" 802 500 90 nv12 /dev/null) == packed ]]
+[[ $(cat "$scratch/pipewire-args") == $'321\n802\n500\n90' ]]
+[[ ! -e $scratch/ffmpeg-args && ! -e $scratch/gst-args ]]
+result=0
+CAPTURE_CHECK_PIPEWIRE_RESULT=1 bash "$scratch/scripts/capture.sh" 802 500 90 nv12 /dev/null >/dev/null 2>&1 || result=$?
+[[ $result == 1 && ! -e $scratch/ffmpeg-args ]]
+[[ $(CAPTURE_CHECK_PIPEWIRE_RESULT=75 bash "$scratch/scripts/capture.sh" 802 500 90 nv12 /dev/null) == frame ]]
+[[ $(cat "$scratch/ffmpeg-args") == *format=nv12* ]]
+[[ $(DECKUSB_GST_NATIVE=0 bash "$scratch/scripts/capture.sh" 802 500 90 nv12 /dev/null) == frame ]]
 result=0
 CAPTURE_CHECK_SOURCES=$'321\n322' bash "$scratch/scripts/capture.sh" --probe >/dev/null 2>&1 || result=$?
 [[ $result == 75 ]]

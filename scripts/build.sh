@@ -51,6 +51,20 @@ case "${1:-mac}" in
     # Both Deck models use Zen 2; optimize the per-pixel CPU conversion for it.
     "${CXX:-g++}" "${includes[@]}" -std=c++20 -O3 -march=znver2 -Wall -Wextra -Werror \
       src/deck/capture-x11.cpp -lX11 -lXext -o build/deck-capture
+    if pkg-config --exists gstreamer-app-1.0 gstreamer-video-1.0; then
+      read -r -a gst_flags <<< "$(pkg-config --cflags --libs gstreamer-app-1.0 gstreamer-video-1.0)"
+      "${CXX:-g++}" "${includes[@]}" -std=c++20 -O3 -Wall -Wextra -Werror \
+        src/deck/capture-pipewire.cpp "${gst_flags[@]}" -o build/deck-pipewire
+    else
+      rm -f build/deck-pipewire
+      echo 'GStreamer development files are absent; Gaming Mode will use FFmpeg.' >&2
+    fi
+    ;;
+  test-gst)
+    read -r -a gst_flags <<< "$(pkg-config --cflags --libs gstreamer-app-1.0 gstreamer-video-1.0)"
+    "${CXX:-g++}" "${includes[@]}" -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined \
+      tests/check-gst.cpp "${gst_flags[@]}" -o build/check-gst
+    build/check-gst
     ;;
   mac)
     # Link an existing libusb installation; do not install dependencies here.
@@ -78,5 +92,5 @@ case "${1:-mac}" in
 PLIST
     codesign --force --sign - "build/DeckUSB.app"
     ;;
-  *) echo 'Usage: bash scripts/build.sh mac|deck|test|test-decoder' >&2; exit 2 ;;
+  *) echo 'Usage: bash scripts/build.sh mac|deck|test|test-decoder|test-gst' >&2; exit 2 ;;
 esac

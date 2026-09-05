@@ -33,6 +33,12 @@ fi
 stage='Checking capture tools'; echo "$stage"
 for tool in ffmpeg gst-launch-1.0 gst-inspect-1.0 pw-dump jq xdpyinfo xrandr python3 pactl parec runuser flock pkexec; do command -v "$tool" >/dev/null || { echo "Missing tool: $tool" >&2; exit 1; }; done
 for plugin in pipewiresrc videoscale videorate queue fdsink; do timeout 10 gst-inspect-1.0 "$plugin" >/dev/null; done
+if [[ -x build/deck-pipewire ]]; then
+    for plugin in videoconvert appsink; do timeout 10 gst-inspect-1.0 "$plugin" >/dev/null; done
+    capture_status=0
+    build/deck-pipewire 0 0 0 0 >/dev/null 2>&1 || capture_status=$?
+    [[ $capture_status == 75 ]] || { echo 'The PipeWire helper cannot run on this Deck.' >&2; exit 1; }
+fi
 test -x build/deck-usb
 test -x build/deck-capture
 # Check the native helper's loader before stopping a working installed service.
@@ -70,6 +76,11 @@ for file in deck.sh capture.sh audio.sh service.sh hardware.sh; do install -o ro
 install -o root -g root -m 755 scripts/desktop-size.py "$app/scripts/desktop-size.py"
 install -o root -g root -m 755 build/deck-usb "$app/build/deck-usb"
 install -o root -g root -m 755 build/deck-capture "$app/build/deck-capture"
+if [[ -x build/deck-pipewire ]]; then
+    install -o root -g root -m 755 build/deck-pipewire "$app/build/deck-pipewire"
+else
+    rm -f "$app/build/deck-pipewire"
+fi
 # Keep the runtime setting when present; otherwise use raw native 60 fps.
 # This matches the portable launcher default and avoids encoder startup work.
 if [[ -f /run/deckusb-video.conf ]]; then

@@ -7,6 +7,7 @@
     "build:deck": "bash scripts/build.sh deck",
     "test": "bash scripts/build.sh test",
     "test:decoder": "bash scripts/build.sh test-decoder",
+    "test:gst": "bash scripts/build.sh test-gst",
     "start": "build/DeckUSB.app/Contents/MacOS/deck-usb"
   }
 }
