@@ -78,6 +78,10 @@ export CAPTURE_CHECK_MODE=gamescope
 [[ $(bash "$scratch/scripts/capture.sh" 802 500 90 h264 "$scratch/sizes") == frame ]]
 [[ $(cat "$scratch/gst-args") == *target-object=321* && $(cat "$scratch/gst-args") == *max-size-buffers=1* ]]
 [[ $(cat "$scratch/ffmpeg-args") == *bgr0* && $(cat "$scratch/ffmpeg-args") == *h264_vaapi* && $(cat "$scratch/ffmpeg-args") != *x11grab* ]]
+[[ $(cat "$scratch/ffmpeg-args") == *$'-qp\n20'* ]]
+[[ $(bash "$scratch/scripts/capture.sh" 802 500 90 h264 "$scratch/sizes" 28) == frame ]]
+[[ $(cat "$scratch/ffmpeg-args") == *$'-qp\n28'* && $(cat "$scratch/ffmpeg-args") == *$'-g\n1'* ]]
+if bash "$scratch/scripts/capture.sh" 802 500 90 h264 "$scratch/sizes" 29 >/dev/null 2>&1; then exit 1; fi
 cat > "$scratch/build/deck-pipewire" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$CAPTURE_CHECK_DIR/pipewire-args"

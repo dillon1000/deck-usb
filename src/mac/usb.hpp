@@ -37,6 +37,7 @@ class USB {
     std::atomic<uint64_t> payloadReadNs{0};
     std::atomic<double> lastPayloadMs{0}, lastDeckQueueMs{0};
     std::atomic<unsigned> width{0}, height{0}, fps{0}, format{nv12}, benchState{0}, liveState{0};
+    std::atomic<unsigned> quality{defaultQuality};
     std::function<void(std::string)> onError;
     void fail(const std::string& message) {
         if (!stopping.exchange(true)) {
@@ -222,7 +223,9 @@ public:
                 payloadReadNs += duration; lastPayloadMs = duration / 1e6;
                 lastDeckQueueMs = frame->header.sendNs >= frame->header.captureDoneNs ? (frame->header.sendNs - frame->header.captureDoneNs) / 1e6 : 0;
                 width = frame->header.width; height = frame->header.height; format = frame->header.format;
-                fps = frame->header.reserved[2]; benchState = frame->header.reserved[0]; liveState = frame->header.reserved[1];
+                fps = frame->header.reserved[2]; benchState = frame->header.reserved[0]; liveState = frame->header.reserved[1] & 1;
+                unsigned qp = frame->header.reserved[1] >> 8;
+                quality = validQuality(qp) ? qp : defaultQuality;
                 frame->receivedNs = nowNs(); byteCount += frame->pixels.size(); ++frameCount;
                 dropCount += frame->header.dropped;
                 onFrame(std::move(frame));
@@ -257,7 +260,7 @@ public:
     }
     double payloadMilliseconds() const { return lastPayloadMs.load(); }
     double deckQueueMilliseconds() const { return lastDeckQueueMs.load(); }
-    VideoSetting setting() const { return {width.load(), height.load(), fps.load(), format.load()}; }
+    VideoSetting setting() const { return {width.load(), height.load(), fps.load(), format.load(), quality.load()}; }
     bool measuring() const { return benchState != 0; }
     bool live() const { return liveState != 0; }
     int speed() const { return handle ? libusb_get_device_speed(libusb_get_device(handle)) : 0; }

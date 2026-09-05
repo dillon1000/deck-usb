@@ -84,9 +84,10 @@ fi
 # Keep the runtime setting when present; otherwise use raw native 60 fps.
 # This matches the portable launcher default and avoids encoder startup work.
 if [[ -f /run/deckusb-video.conf ]]; then
-    read -r width height fps format < /run/deckusb-video.conf
-    if [[ $width =~ ^[0-9]+$ && $height =~ ^[0-9]+$ && $fps =~ ^[0-9]+$ && $format =~ ^(h264|nv12|bgra)$ ]]; then
-        printf '%s %s %s %s\n' "$width" "$height" "$fps" "$format" > "$app/video.conf"
+    read -r width height fps format quality < /run/deckusb-video.conf
+    quality=${quality:-20}
+    if [[ ( $quality == 20 || $quality == 24 || $quality == 28 ) && $width =~ ^[0-9]+$ && $height =~ ^[0-9]+$ && $fps =~ ^[0-9]+$ && $format =~ ^(h264|nv12|bgra)$ ]]; then
+        printf '%s %s %s %s %s\n' "$width" "$height" "$fps" "$format" "$quality" > "$app/video.conf"
     fi
 fi
 [[ -f $app/video.conf ]] || printf '1280 800 60 nv12\n' > "$app/video.conf"

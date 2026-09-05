@@ -130,6 +130,7 @@ NSImage* symbol(NSString* name);
 @property NSPopUpButton* resolution;
 @property NSPopUpButton* rate;
 @property NSPopUpButton* codec;
+@property NSPopUpButton* quality;
 @property NSButton* apply;
 @property NSButton* retest;
 @property NSButton* mute;

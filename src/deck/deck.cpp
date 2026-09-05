@@ -80,6 +80,7 @@ int main(int argc, char** argv) try {
     if (argc == 2 && std::string(argv[1]) == "--check-input") { Input input; input.selfCheck(); return 0; }
     Header base;
     unsigned fps = 60;
+    unsigned quality = defaultQuality;
     int audioFd = -1;
     FILE* packetSizes = nullptr;
     bool synthetic = false, benchmark = false;
@@ -98,6 +99,7 @@ int main(int argc, char** argv) try {
         else if (arg == "--packet-sizes") { packetSizes = fopen(value(), "r"); require(packetSizes, "Open packet sizes"); }
         else if (arg == "--audio-fd") audioFd = std::stoi(value());
         else if (arg == "--fps") fps = std::stoul(value());
+        else if (arg == "--quality") quality = std::stoul(value());
         else if (arg == "--usb-writes") usbWrites = value();
         else if (arg == "--format") {
             std::string f = value();
@@ -107,6 +109,7 @@ int main(int argc, char** argv) try {
         else throw std::runtime_error("Usage: deck-usb [--test|--bench] [--width N --height N --fps N --format nv12|bgra --ffs PATH]; live raw frames arrive on stdin");
     }
     if (!fps || fps > 240) throw std::runtime_error("FPS must be 1..240");
+    if (!validQuality(quality)) throw std::runtime_error("H.264 quality must be 20, 24, or 28");
     frameBytes(base.width, base.height, nv12);
     if (base.format == h264 && (!packetSizes || synthetic)) throw std::runtime_error("H.264 needs live packet framing");
     base.bytes = base.format == h264 ? 0 : frameBytes(base.width, base.height, base.format);
@@ -204,7 +207,8 @@ int main(int argc, char** argv) try {
             if (valid(c) && c.type == restart) throw std::runtime_error("Viewer closed; restart USB framing");
             if (!valid(c)) throw std::runtime_error("Invalid USB command");
             if (c.type == configure) {
-                applyVideoSetting({unsigned(c.x), unsigned(c.y), unsigned(c.value), unsigned(c.code)});
+                applyVideoSetting({unsigned(c.x), unsigned(c.y), unsigned(c.value), unsigned(c.code),
+                    c.nonce ? unsigned(c.nonce) : defaultQuality});
                 input.releaseAll(); lastCommand.store(received); continue;
             }
             if (c.type == measure) { input.releaseAll(); cableTest = c.value; }
@@ -269,7 +273,9 @@ int main(int argc, char** argv) try {
         bool testing = cableTest.load();
         h.sequence = ++sequence;
         // Header status confirms benchmark state and applied FPS to the viewer.
-        h.reserved[0] = testing || benchmark; h.reserved[1] = !synthetic; h.reserved[2] = fps;
+        h.reserved[0] = testing || benchmark;
+        h.reserved[1] = unsigned(!synthetic) | (h.format == h264 ? quality << 8 : 0);
+        h.reserved[2] = fps;
         if (synthetic || testing) {
             if (h.format == h264) { h.format = nv12; h.bytes = frameBytes(h.width, h.height, nv12); }
             pixels.resize(h.bytes, 128);

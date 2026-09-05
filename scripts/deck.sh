@@ -11,6 +11,8 @@ if [[ ${1:-} == stop ]]; then
 fi
 
 validate_video() {
+    QUALITY=${QUALITY:-20} # Older four-field settings retain the original H.264 quality.
+    [[ $QUALITY == 20 || $QUALITY == 24 || $QUALITY == 28 ]] || return 2
     for number in "$WIDTH" "$HEIGHT" "$FPS"; do [[ $number =~ ^[1-9][0-9]*$ ]] || return 2; done
     [[ $WIDTH -ge 2 && $WIDTH -le 1920 && $((WIDTH % 2)) == 0 && $HEIGHT -ge 2 && $HEIGHT -le 1200 && $((HEIGHT % 2)) == 0 && $FPS -ge 1 && $FPS -le 240 ]] || return 2
     [[ $FORMAT == nv12 || $FORMAT == bgra || $FORMAT == h264 ]]
@@ -22,13 +24,13 @@ if [[ ${1:-} == stream ]]; then
     mode=$2
     # Optional four-value file permits resolution tests without restarting sudo.
     # Parse data only; never source a desktop-user file into the root shell.
-    if [[ -f /run/deckusb-video.conf ]]; then read -r WIDTH HEIGHT FPS FORMAT < /run/deckusb-video.conf
-    elif [[ -f video.conf ]]; then read -r WIDTH HEIGHT FPS FORMAT < video.conf; fi
+    if [[ -f /run/deckusb-video.conf ]]; then read -r WIDTH HEIGHT FPS FORMAT QUALITY < /run/deckusb-video.conf
+    elif [[ -f video.conf ]]; then read -r WIDTH HEIGHT FPS FORMAT QUALITY < video.conf; fi
     validate_video
     if [[ $mode != live && $FORMAT == h264 ]]; then FORMAT=nv12; fi
     args=(--width "$WIDTH" --height "$HEIGHT" --fps "$FPS" --format "$FORMAT")
     # Transport experiments change request scheduling, never video framing.
-    args+=(--usb-writes "${DECKUSB_USB_WRITES:-large}")
+    args+=(--usb-writes "${DECKUSB_USB_WRITES:-large}" --quality "$QUALITY")
     if [[ $mode == live ]]; then
         packet_sizes=/dev/null
         if [[ $FORMAT == h264 ]]; then
@@ -39,7 +41,7 @@ if [[ ${1:-} == stream ]]; then
             args+=(--packet-sizes "$packet_sizes")
         fi
         runuser -u "$DESKTOP_USER" -- env XDG_RUNTIME_DIR="/run/user/$DESKTOP_UID" \
-            bash "$PWD/scripts/capture.sh" "$WIDTH" "$HEIGHT" "$FPS" "$FORMAT" "$packet_sizes" \
+            bash "$PWD/scripts/capture.sh" "$WIDTH" "$HEIGHT" "$FPS" "$FORMAT" "$packet_sizes" "$QUALITY" \
             | ./build/deck-usb "${args[@]}" --audio-fd 3 3< <(
                 runuser -u "$DESKTOP_USER" -- env XDG_RUNTIME_DIR="/run/user/$DESKTOP_UID" \
                     bash "$PWD/scripts/audio.sh")
@@ -111,9 +113,9 @@ cleanup() {
     # Installed code and settings are root-owned. Keep validated settings across
     # reboot; manual launches keep their existing temporary /run settings.
     if [[ -n ${INVOCATION_ID:-} && -f /run/deckusb-video.conf ]]; then
-        read -r WIDTH HEIGHT FPS FORMAT < /run/deckusb-video.conf
+        read -r WIDTH HEIGHT FPS FORMAT QUALITY < /run/deckusb-video.conf
         if validate_video; then
-            printf '%s %s %s %s\n' "$WIDTH" "$HEIGHT" "$FPS" "$FORMAT" > video.conf.next
+            printf '%s %s %s %s %s\n' "$WIDTH" "$HEIGHT" "$FPS" "$FORMAT" "$QUALITY" > video.conf.next
             mv video.conf.next video.conf
         fi
     fi
@@ -219,8 +221,8 @@ while [[ $mode != stop ]]; do
         if [[ ! -s /run/deckusb/ready ]]; then
             # VAAPI can fail before it opens the packet FIFO. Recover here too:
             # the sender cannot request raw mode until USB setup has completed.
-            if [[ -f /run/deckusb-video.conf ]]; then read -r WIDTH HEIGHT FPS FORMAT < /run/deckusb-video.conf
-            elif [[ -f video.conf ]]; then read -r WIDTH HEIGHT FPS FORMAT < video.conf; fi
+            if [[ -f /run/deckusb-video.conf ]]; then read -r WIDTH HEIGHT FPS FORMAT QUALITY < /run/deckusb-video.conf
+            elif [[ -f video.conf ]]; then read -r WIDTH HEIGHT FPS FORMAT QUALITY < video.conf; fi
             validate_video
             [[ $mode == live && $FORMAT == h264 ]] || { echo 'Sender failed before USB setup.' >&2; exit 1; }
             printf '%s %s %s nv12\n' "$WIDTH" "$HEIGHT" "$FPS" > /run/deckusb-video.recovery

@@ -19,8 +19,9 @@ else
     session="desktop:$display:$authority"
 fi
 if [[ ${1:-} == --probe ]]; then printf '%s\n' "$session"; exit; fi
-[[ $# == 5 ]] || { echo 'Usage: capture.sh WIDTH HEIGHT FPS FORMAT PACKET_FIFO' >&2; exit 2; }
-width=$1 height=$2 fps=$3 format=$4 packet_sizes=$5
+[[ $# == 5 || $# == 6 ]] || { echo 'Usage: capture.sh WIDTH HEIGHT FPS FORMAT PACKET_FIFO [QUALITY]' >&2; exit 2; }
+width=$1 height=$2 fps=$3 format=$4 packet_sizes=$5 quality=${6:-20}
+[[ $quality == 20 || $quality == 24 || $quality == 28 ]] || exit 2
 for number in "$width" "$height" "$fps"; do [[ $number =~ ^[1-9][0-9]*$ ]] || exit 2; done
 [[ $width -ge 2 && $width -le 1920 && $((width % 2)) == 0 && $height -ge 2 && $height -le 1200 && $((height % 2)) == 0 && $fps -le 240 ]] || exit 2
 [[ $format == nv12 || $format == bgra || $format == h264 ]] || exit 2
@@ -36,7 +37,7 @@ filter="scale=$width:$height:flags=fast_bilinear:out_color_matrix=bt709:out_rang
 if [[ $format == h264 ]]; then
     # Independent IDR frames permit safe dropping. QP 20 preserves the existing
     # quality target; async_depth 1 avoids adding an encoder frame queue.
-    encoder=(-map 0:v -vf "$filter,hwupload" -an -c:v h264_vaapi -qp 20
+    encoder=(-map 0:v -vf "$filter,hwupload" -an -c:v h264_vaapi -qp "$quality"
         -g 1 -bf 0 -async_depth 1 -threads 1 -color_range tv -colorspace bt709
         -fps_mode passthrough -f tee "[f=framecrc:flush_packets=1]$packet_sizes|[f=h264:flush_packets=1]pipe:1")
 else

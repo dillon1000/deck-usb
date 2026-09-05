@@ -73,10 +73,12 @@
     NSString* title = [NSString stringWithFormat:@"%u × %u", s.width, s.height];
     if ([self.resolution indexOfItemWithTitle:title] >= 0) [self.resolution selectItemWithTitle:title];
     [self.rate selectItemWithTag:s.fps]; [self.codec selectItemWithTag:s.format];
+    [self.quality selectItemWithTag:s.quality];
 }
 - (VideoSetting)selection {
     unsigned width = unsigned(self.resolution.selectedTag);
-    return {width, [self.resolution.selectedItem.representedObject unsignedIntValue], unsigned(self.rate.selectedTag), unsigned(self.codec.selectedTag)};
+    return {width, [self.resolution.selectedItem.representedObject unsignedIntValue], unsigned(self.rate.selectedTag),
+        unsigned(self.codec.selectedTag), unsigned(self.quality.selectedTag)};
 }
 - (void)play {
     // Stop benchmark mode before accepting input. The next live frame confirms
@@ -131,7 +133,8 @@
 - (void)changeTo:(VideoSetting)setting {
     if (!usb || !usb->running()) return;
     auto current = usb->setting();
-    if (usb->live() && current.width == setting.width && current.height == setting.height && current.fps == setting.fps && current.format == setting.format) {
+    if (usb->live() && current.width == setting.width && current.height == setting.height && current.fps == setting.fps && current.format == setting.format &&
+        (setting.format != h264 || current.quality == setting.quality)) {
         [self setSelections:setting]; [self play]; return;
     }
     requested = setting; testNeeded = false; screen = Screen::applying;
@@ -139,6 +142,7 @@
     self.progress.hidden = NO; self.progress.indeterminate = YES; [self.progress startAnimation:nil];
     self.status.stringValue = @"Applying display settings…";
     Command c; c.type = configure; c.x = setting.width; c.y = setting.height; c.value = setting.fps; c.code = setting.format;
+    c.nonce = setting.quality;
     usb->enqueue(c);
 }
 - (void)applySelection:(id)sender { (void)sender; [self.displaySettings close]; [self changeTo:[self selection]]; }
@@ -179,7 +183,8 @@
         [self setSelections:usb->setting()];
         if (screen == Screen::applying) {
             auto actual = usb->setting();
-            if (actual.width != requested.width || actual.height != requested.height || actual.fps != requested.fps || actual.format != requested.format) {
+            if (actual.width != requested.width || actual.height != requested.height || actual.fps != requested.fps || actual.format != requested.format ||
+                (requested.format == h264 && actual.quality != requested.quality)) {
                 self.lastError = @"The Deck did not apply the requested display setting.";
                 [self card:@"Display setting was not applied" message:@"The Deck kept its previous setting. You can resume playback and try again." icon:@"exclamationmark.triangle"];
                 self.secondary.hidden = NO; self.secondary.enabled = YES; self.secondary.title = @"Resume playback";
@@ -304,6 +309,7 @@
 - (void)updateBandwidth:(id)sender {
     (void)sender;
     auto s = [self selection];
+    self.quality.enabled = s.format == h264;
     if (s.format == h264) {
         self.bandwidth.textColor = NSColor.secondaryLabelColor;
         self.bandwidth.stringValue = @"Hardware H.264 uses less USB bandwidth. Image quality and data rate depend on the scene.";

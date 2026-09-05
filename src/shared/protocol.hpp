@@ -15,6 +15,10 @@ constexpr unsigned chunk = 256 * 1024; // One bounded USB request, not a frame q
 constexpr uint32_t nv12 = 1, bgra = 2, h264 = 3;
 // Independent H.264 access units may vary in size; bound them before allocation.
 constexpr uint32_t maxEncodedBytes = 4 * 1024 * 1024;
+// Independent-frame H.264 quality presets: 20 keeps the original quality,
+// 24 balances detail and bandwidth, and 28 favors smaller USB packets.
+constexpr unsigned defaultQuality = 20;
+inline bool validQuality(uint64_t value) { return value == 20 || value == 24 || value == 28; }
 static_assert(std::endian::native == std::endian::little);
 
 // All fields are little endian. Header precedes one raw frame or H.264 access unit.
@@ -23,6 +27,8 @@ struct Header {
     uint32_t magicValue = magic, versionValue = version, format = nv12;
     uint32_t width = 1280, height = 800, bytes = 0;
     uint64_t sequence = 0, captureDoneNs = 0, sendNs = 0;
+    // Status: [0] cable test, [1] live bit 0 + optional QP in bits 8..15,
+    // [2] FPS. Old senders leave QP zero; viewers then assume quality 20.
     uint32_t dropped = 0, reserved[3] = {};
 };
 // Fixed 5 ms stereo packets keep audio independent of video frame size. PCM is
@@ -44,7 +50,7 @@ enum Type : uint32_t { ping = 0, key = 1, relative = 2, absolute = 3, wheel = 4,
 struct Command {
     uint32_t magicValue = magic, type = ping;
     int32_t code = 0, value = 0, x = 0, y = 0;
-    uint64_t nonce = 0;
+    uint64_t nonce = 0; // Ping timestamp, or configure QP (0 retains legacy 20).
 };
 struct Pong {
     uint32_t magicValue = magic, versionValue = version;
@@ -75,7 +81,7 @@ inline bool valid(const Command& c) {
     if (c.type == measure) return c.value == 0 || c.value == 1;
     if (c.type == configure) return c.x >= 2 && c.x <= 1920 && c.x % 2 == 0 &&
         c.y >= 2 && c.y <= 1200 && c.y % 2 == 0 && c.value >= 1 && c.value <= 240 &&
-        (c.code == nv12 || c.code == bgra || c.code == h264);
+        (c.code == nv12 || c.code == bgra || c.code == h264) && (!c.nonce || validQuality(c.nonce));
     if (c.type == key) return ((c.code >= 1 && c.code <= 248) || (c.code >= 272 && c.code <= 279))
         && (c.value == 0 || c.value == 1);
     if (c.type == absolute) return c.x >= 0 && c.x <= 65535 && c.y >= 0 && c.y <= 65535;
@@ -123,7 +129,7 @@ struct TransferMeter {
         time = nextTime; bytes = nextBytes; frames = nextFrames; return true;
     }
 };
-struct VideoSetting { unsigned width, height, fps, format = nv12; };
+struct VideoSetting { unsigned width, height, fps, format = nv12, quality = defaultQuality; };
 // Reserve 5% of measured payload capacity for timing variation and audio.
 // Favor 60 fps before resolution, then fall back to 30 fps on slower links.
 inline VideoSetting recommend(double megabytes, bool lowLatency = false) {

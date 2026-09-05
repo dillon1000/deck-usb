@@ -76,6 +76,9 @@ int main() {
     c.type = relative; c.x = std::numeric_limits<int>::min(); assert(!valid(c));
     assert(linuxKey(123) == 105 && linuxKey(127) == 0 && linuxKey(999) == 0);
     c = Command{}; c.type = configure; c.x = 800; c.y = 500; c.value = 60; c.code = nv12;
+    for (auto qp : {0u, 20u, 24u, 28u}) { c.nonce = qp; assert(valid(c)); }
+    for (auto qp : {1u, 19u, 29u, UINT32_MAX}) { c.nonce = qp; assert(!valid(c)); }
+    c.nonce = 0;
     assert(valid(c)); c.x = 801; assert(!valid(c)); c.x = 800; c.value = 0; assert(!valid(c));
     // Both 16:9 and 16:10 high-resolution selections must survive the same
     // command and frame validation used on either end of the USB connection.

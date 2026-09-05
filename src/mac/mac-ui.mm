@@ -131,6 +131,12 @@ static NSStackView* row(NSArray<NSView*>* views, CGFloat spacing = 10) {
     [self.codec addItemWithTitle:@"Uncompressed"]; self.codec.lastItem.tag = nv12;
     [self.codec addItemWithTitle:@"H.264"]; self.codec.lastItem.tag = h264;
     self.codec.accessibilityLabel = @"Video format"; self.codec.target = self; self.codec.action = @selector(updateBandwidth:);
+    self.quality = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [self.quality addItemWithTitle:@"High (Default)"]; self.quality.lastItem.tag = 20;
+    [self.quality addItemWithTitle:@"Balanced"]; self.quality.lastItem.tag = 24;
+    [self.quality addItemWithTitle:@"Lower bandwidth"]; self.quality.lastItem.tag = 28;
+    self.quality.accessibilityLabel = @"H.264 quality"; self.quality.enabled = NO;
+    self.quality.toolTip = @"Lower bandwidth reduces detail and sends smaller frames. Click Apply to change H.264 quality.";
     [self setSelections:{800, 500, 60}];
     self.apply = [self button:@"Apply" action:@selector(applySelection:)]; self.apply.keyEquivalent = @"\r";
     self.bandwidth = label(@"", 12); self.bandwidth.textColor = NSColor.secondaryLabelColor;
@@ -153,7 +159,8 @@ static NSStackView* row(NSArray<NSView*>* views, CGFloat spacing = 10) {
     auto resolutionNote = label(@"Desktop Mode renders at larger sizes after updating Deck setup. Games may need borderless mode. Gaming Mode currently scales larger streams.", 12);
     resolutionNote.textColor = NSColor.secondaryLabelColor;
     [resolutionNote.widthAnchor constraintEqualToConstant:300].active = YES;
-    NSGridView* form = [NSGridView gridViewWithViews:@[@[label(@"Resolution", 13), self.resolution], @[label(@"Frame rate", 13), self.rate], @[label(@"Video", 13), self.codec]]];
+    NSGridView* form = [NSGridView gridViewWithViews:@[@[label(@"Resolution", 13), self.resolution], @[label(@"Frame rate", 13), self.rate],
+        @[label(@"Video", 13), self.codec], @[label(@"H.264 quality", 13), self.quality]]];
     form.rowSpacing = 16; form.columnSpacing = 24;
     [form columnAtIndex:0].xPlacement = NSGridCellPlacementLeading;
     [form columnAtIndex:1].xPlacement = NSGridCellPlacementTrailing;
@@ -164,7 +171,7 @@ static NSStackView* row(NSArray<NSView*>* views, CGFloat spacing = 10) {
     [self.bandwidth.widthAnchor constraintEqualToConstant:300].active = YES;
     [form.widthAnchor constraintEqualToConstant:300].active = YES;
     self.displaySettings = [NSPopover new]; self.displaySettings.behavior = NSPopoverBehaviorTransient;
-    auto settingsController = [NSViewController new]; settingsController.view = [[PanelSurface alloc] initWithFrame:NSMakeRect(0, 0, 348, 590)];
+    auto settingsController = [NSViewController new]; settingsController.view = [[PanelSurface alloc] initWithFrame:NSMakeRect(0, 0, 348, 626)];
     settingsBody.translatesAutoresizingMaskIntoConstraints = NO; [settingsController.view addSubview:settingsBody];
     [NSLayoutConstraint activateConstraints:@[[settingsBody.leadingAnchor constraintEqualToAnchor:settingsController.view.leadingAnchor constant:24],
         [settingsBody.topAnchor constraintEqualToAnchor:settingsController.view.topAnchor constant:24]]];
