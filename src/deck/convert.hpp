@@ -10,13 +10,15 @@ namespace deckusb {
 // Keep this boundary so GCC retains the no-alias inputs for loop vectorization.
 __attribute__((noinline)) inline void bgr0ToNV12(const uint8_t* __restrict src,
     uint8_t* __restrict dst, size_t width, size_t height) {
-    for (size_t y = 0; y < height; ++y) {
-        auto in = src + y * width * 4; auto out = dst + y * width;
-        for (size_t x = 0; x < width; ++x)
-            out[x] = uint8_t(((2991 * in[4*x+2] + 10064 * in[4*x+1] +
-                1016 * in[4*x] + 8192) >> 14) + 16);
-    }
     for (size_t y = 0; y < height; y += 2) {
+        // Finish Y and UV while these two source rows are hot in cache. Keep
+        // separate inner loops so GCC can still vectorize each plane with AVX2.
+        for (size_t row = y; row < y + 2; ++row) {
+            auto in = src + row * width * 4; auto out = dst + row * width;
+            for (size_t x = 0; x < width; ++x)
+                out[x] = uint8_t(((2991 * in[4*x+2] + 10064 * in[4*x+1] +
+                    1016 * in[4*x] + 8192) >> 14) + 16);
+        }
         auto a = src + y * width * 4; auto b = a + width * 4;
         auto out = dst + width * height + (y/2) * width;
         for (size_t x = 0; x < width; x += 2) {
