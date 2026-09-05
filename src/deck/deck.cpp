@@ -206,6 +206,10 @@ int main(int argc, char** argv) try {
             uint64_t received = nowNs();
             if (valid(c) && c.type == restart) throw std::runtime_error("Viewer closed; restart USB framing");
             if (!valid(c)) throw std::runtime_error("Invalid USB command");
+            if (c.type == transport) {
+                applyWriteSetting(unsigned(c.value));
+                input.releaseAll(); lastCommand.store(received); continue;
+            }
             if (c.type == configure) {
                 applyVideoSetting({unsigned(c.x), unsigned(c.y), unsigned(c.value), unsigned(c.code),
                     c.nonce ? unsigned(c.nonce) : defaultQuality});
@@ -275,6 +279,7 @@ int main(int argc, char** argv) try {
         // Header status confirms benchmark state and applied FPS to the viewer.
         h.reserved[0] = testing || benchmark;
         h.reserved[1] = unsigned(!synthetic) | (h.format == h264 ? quality << 8 : 0);
+        if (!synthetic) h.reserved[1] |= writeModeSupport | (videoWriter.setting() << 17);
         h.reserved[2] = fps;
         if (synthetic || testing) {
             if (h.format == h264) { h.format = nv12; h.bytes = frameBytes(h.width, h.height, nv12); }

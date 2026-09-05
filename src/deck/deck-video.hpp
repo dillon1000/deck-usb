@@ -34,6 +34,7 @@ public:
     VideoWriter(const VideoWriter&) = delete;
     VideoWriter& operator=(const VideoWriter&) = delete;
     ~VideoWriter() { destroy(); }
+    unsigned setting() const { return mode == "serial" ? 0 : mode == "large" ? 1 : 2; }
     void writeFrame(const deckusb::Header& header, const uint8_t* pixels, size_t size) {
         deckusb::validate(header);
         if (size != header.bytes) throw std::runtime_error("USB payload size disagrees with header");

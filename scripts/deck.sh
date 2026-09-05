@@ -30,7 +30,13 @@ if [[ ${1:-} == stream ]]; then
     if [[ $mode != live && $FORMAT == h264 ]]; then FORMAT=nv12; fi
     args=(--width "$WIDTH" --height "$HEIGHT" --fps "$FPS" --format "$FORMAT")
     # Transport experiments change request scheduling, never video framing.
-    args+=(--usb-writes "${DECKUSB_USB_WRITES:-large}" --quality "$QUALITY")
+    writes=${DECKUSB_USB_WRITES:-large}
+    if [[ -z ${DECKUSB_USB_WRITES:-} ]]; then
+        if [[ -f /run/deckusb-usb-writes.conf ]]; then read -r writes < /run/deckusb-usb-writes.conf
+        elif [[ -f usb-writes.conf ]]; then read -r writes < usb-writes.conf; fi
+    fi
+    [[ $writes == serial || $writes == large || $writes == async ]] || exit 2
+    args+=(--usb-writes "$writes" --quality "$QUALITY")
     if [[ $mode == live ]]; then
         packet_sizes=/dev/null
         if [[ $FORMAT == h264 ]]; then
@@ -117,6 +123,12 @@ cleanup() {
         if validate_video; then
             printf '%s %s %s %s %s\n' "$WIDTH" "$HEIGHT" "$FPS" "$FORMAT" "$QUALITY" > video.conf.next
             mv video.conf.next video.conf
+        fi
+    fi
+    if [[ -n ${INVOCATION_ID:-} && -f /run/deckusb-usb-writes.conf ]]; then
+        read -r writes < /run/deckusb-usb-writes.conf
+        if [[ $writes == serial || $writes == large || $writes == async ]]; then
+            printf '%s\n' "$writes" > usb-writes.conf.next; mv usb-writes.conf.next usb-writes.conf
         fi
     fi
     echo 'DeckUSB stopped; session USB resources removed.'

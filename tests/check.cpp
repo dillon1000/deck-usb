@@ -79,6 +79,9 @@ int main() {
     for (auto qp : {0u, 20u, 24u, 28u}) { c.nonce = qp; assert(valid(c)); }
     for (auto qp : {1u, 19u, 29u, UINT32_MAX}) { c.nonce = qp; assert(!valid(c)); }
     c.nonce = 0;
+    Command writer; writer.type = transport;
+    for (int mode : {0, 1, 2}) { writer.value = mode; assert(valid(writer)); }
+    for (int mode : {-1, 3}) { writer.value = mode; assert(!valid(writer)); }
     assert(valid(c)); c.x = 801; assert(!valid(c)); c.x = 800; c.value = 0; assert(!valid(c));
     // Both 16:9 and 16:10 high-resolution selections must survive the same
     // command and frame validation used on either end of the USB connection.

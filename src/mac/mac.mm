@@ -20,6 +20,7 @@ int main(int argc, const char** argv) {
             if (audioMinimumMs != 12 && audioMinimumMs != 15 && audioMinimumMs != 20) audioMinimumMs = 20;
             double seconds = 0;
             bool list = false;
+            int writerMode = -1;
             for (int i=1; i<argc; ++i) {
                 std::string arg = argv[i];
                 if (arg == "--demo") demo = true;
@@ -29,15 +30,37 @@ int main(int argc, const char** argv) {
                 else if (arg == "--serial-usb") pipelinedUSB = false;
                 else if (arg == "--vsync") syncDisplay = true;
                 else if (arg == "--no-vsync") syncDisplay = false;
+                else if (arg == "--deck-writes" && i + 1 < argc) {
+                    std::string mode = argv[++i];
+                    writerMode = mode == "serial" ? 0 : mode == "large" ? 1 : mode == "async" ? 2 : -1;
+                    if (writerMode < 0) throw std::runtime_error("USB writes must be serial, large, or async");
+                }
                 else if ((arg == "--bench" || arg == "--sensitivity") && i+1<argc) {
                     double value = std::stod(argv[++i]);
                     if (!std::isfinite(value) || value <= 0 || value > 3600) throw std::runtime_error("Invalid numeric option");
                     if (arg == "--bench") seconds = value; else sensitivity = value;
-                } else throw std::runtime_error("Usage: deck-usb [--list|--demo|--bench SECONDS] [--no-vsync] [--serial-usb] [--display-link] [--trace-present] [--sensitivity N]");
+                } else throw std::runtime_error("Usage: deck-usb [--list|--demo|--bench SECONDS|--deck-writes serial|large|async] [--no-vsync] [--serial-usb] [--display-link] [--trace-present] [--sensitivity N]");
             }
+            if (writerMode >= 0 && (demo || list || seconds)) throw std::runtime_error("Select a Deck write mode separately from playback or a benchmark");
             if (!demo) {
                 usb = std::make_unique<USB>(pipelinedUSB);
                 if (list) { usb->list(); return 0; }
+                // Capability-gated tuning uses the existing USB control channel,
+                // so transport A/B checks need no extra root install or network.
+                if (writerMode >= 0) {
+                    usb->connect();
+                    usb->start([](std::shared_ptr<Frame>) {}, [](std::string) {});
+                    auto end = nowNs() + 3000000000ULL;
+                    while (usb->running() && !usb->frames() && nowNs() < end) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    if (!usb->frames() || usb->writeMode() < 0) throw std::runtime_error("Update Deck setup before selecting its USB write mode");
+                    if (usb->writeMode() == writerMode) { usb->stop(); return 0; }
+                    Command command; command.type = transport; command.value = writerMode; usb->enqueue(command);
+                    end = nowNs() + 5000000000ULL;
+                    while (usb->running() && nowNs() < end) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    bool restarted = !usb->running(); usb->stop();
+                    if (!restarted) throw std::runtime_error("The Deck did not restart for the USB write change");
+                    puts("Write mode requested. Reconnect to verify it or run a benchmark."); return 0;
+                }
                 if (seconds) {
                     usb->connect();
                     usb->start([](std::shared_ptr<Frame>) {}, [](std::string e) { fprintf(stderr,"%s\n", e.c_str()); });

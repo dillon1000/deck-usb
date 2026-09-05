@@ -18,6 +18,7 @@ constexpr uint32_t maxEncodedBytes = 4 * 1024 * 1024;
 // Independent-frame H.264 quality presets: 20 keeps the original quality,
 // 24 balances detail and bandwidth, and 28 favors smaller USB packets.
 constexpr unsigned defaultQuality = 20;
+constexpr unsigned writeModeSupport = 1u << 16;
 inline bool validQuality(uint64_t value) { return value == 20 || value == 24 || value == 28; }
 static_assert(std::endian::native == std::endian::little);
 
@@ -28,6 +29,7 @@ struct Header {
     uint32_t width = 1280, height = 800, bytes = 0;
     uint64_t sequence = 0, captureDoneNs = 0, sendNs = 0;
     // Status: [0] cable test, [1] live bit 0 + optional QP in bits 8..15,
+    // bit 16 advertises transport selection, bits 17..18 report its mode;
     // [2] FPS. Old senders leave QP zero; viewers then assume quality 20.
     uint32_t dropped = 0, reserved[3] = {};
 };
@@ -44,7 +46,7 @@ inline void validate(const AudioPacket& a) {
     if (a.magicValue != magic || a.versionValue != version)
         throw std::runtime_error("Invalid audio packet");
 }
-enum Type : uint32_t { ping = 0, key = 1, relative = 2, absolute = 3, wheel = 4, release = 5, restart = 6, configure = 7, measure = 8 };
+enum Type : uint32_t { ping = 0, key = 1, relative = 2, absolute = 3, wheel = 4, release = 5, restart = 6, configure = 7, measure = 8, transport = 9 };
 // Key codes are Linux evdev codes. Absolute coordinates are in [0, 65535].
 // Ping is also a heartbeat. Silence for one second releases all held inputs.
 struct Command {
@@ -77,7 +79,8 @@ inline void validate(const Header& h) {
         throw std::runtime_error("Invalid frame header; disconnecting");
 }
 inline bool valid(const Command& c) {
-    if (c.magicValue != magic || c.type > measure) return false;
+    if (c.magicValue != magic || c.type > transport) return false;
+    if (c.type == transport) return c.value >= 0 && c.value <= 2;
     if (c.type == measure) return c.value == 0 || c.value == 1;
     if (c.type == configure) return c.x >= 2 && c.x <= 1920 && c.x % 2 == 0 &&
         c.y >= 2 && c.y <= 1200 && c.y % 2 == 0 && c.value >= 1 && c.value <= 240 &&
