@@ -162,3 +162,22 @@ It requires actual hardware decoding and is separate from the regular checks.
 
 USB IDs `1209:0001` are prototype test IDs, not a production allocation. The host
 also checks the product string before claiming an interface.
+
+## License
+
+DeckUSB is licensed under the [MIT License](LICENSE).
+Copyright (c) 2026 Dillon Ring.
+
+## Disclaimer
+
+Use DeckUSB at your own risk. It is provided "as is", without warranty.
+To the fullest extent permitted by applicable law, Dillon Ring and the
+contributors are not liable for any damage, data loss, or other loss arising
+from installing, using, modifying, or distributing DeckUSB. This includes damage
+to your Steam Deck, Mac, USB ports, cables, peripherals, or any other device or
+property. See the [MIT License](LICENSE) for the full warranty and liability terms.
+
+## AI code notice
+
+This project includes AI-generated code and was developed with AI coding tools.
+The code may contain errors. Review it before use.

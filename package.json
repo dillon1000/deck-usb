@@ -1,5 +1,6 @@
 {
   "name": "deck-usb",
+  "license": "MIT",
   "private": true,
   "scripts": {
     "build": "bash scripts/build.sh mac",
