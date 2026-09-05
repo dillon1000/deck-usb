@@ -1,8 +1,9 @@
 # Measuring latency and resource use
 
 Performance depends on the USB link, capture size and rate, desktop workload,
-codec, and Mac display. Measure on the target hardware; no device-specific
-benchmark results are included in this repository.
+codec, and Mac display. Measure on the target hardware. The
+[September 2026 OLED check](PERFORMANCE-2026-09-05.md) records one hardware
+comparison and its limits.
 
 ## What the counters mean
 
@@ -48,3 +49,28 @@ Keep **Prevent screen tearing** enabled in Display settings if tearing is
 unacceptable. Its saved setting applies immediately. Test serial USB reads or
 display-linked rendering only as controlled comparisons, and keep a change only
 when the relevant measurements improve without unacceptable regressions.
+
+## Compare Deck USB writes
+
+Quit the Mac viewer before using the command line; only one process can claim
+the video interface. With an updated Deck sender, select a mode over USB:
+
+```sh
+build/DeckUSB.app/Contents/MacOS/deck-usb --deck-writes async
+build/DeckUSB.app/Contents/MacOS/deck-usb --bench 12
+```
+
+Wait for the device to reconnect between commands. A closed reader restarts
+the sender to discard incomplete frames. If a command reaches the old session
+during shutdown, wait for reconnection and retry it.
+
+`serial` uses the original blocking 256 KiB writes. `large`, the default, uses
+blocking 1 MiB writes. `async` keeps up to three 256 KiB requests in flight,
+including the separate frame header. It waits for all requests before starting
+another frame. None of these modes changes the host's framing or queues whole
+frames for later transmission.
+
+The selection is stored in `/run/deckusb-usb-writes.conf`; the installed service
+saves it to `usb-writes.conf` when it stops. `DECKUSB_USB_WRITES` overrides these
+files for manual tests. Keep `large` as a general fallback and compare `async`
+on the actual USB controller and kernel before using it.
