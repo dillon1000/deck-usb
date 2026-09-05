@@ -204,7 +204,9 @@
             gpuBusy = false;
             if (completed.status == MTLCommandBufferStatusError)
                 NSLog(@"Metal: %@", completed.error);
-            [self scheduleDraw];
+            // Already on the render queue. A queued draw or display-link tick
+            // keeps ownership of pacing; otherwise render the newest frame now.
+            if (!displayLinked && !renderStopped && !drawQueued.load()) [self renderFrame];
         });
     }];
     [command commit];

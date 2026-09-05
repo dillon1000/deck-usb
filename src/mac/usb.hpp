@@ -164,7 +164,11 @@ public:
             while (!stopping) {
                 if (nowNs() >= nextPing) { send(Command{}); nextPing = nowNs() + 100000000; }
                 std::unique_lock lock(commandMutex);
-                commandsReady.wait_for(lock, std::chrono::milliseconds(2), [&] { return !commands.empty() || stopping; });
+                // Input and stop notify immediately; idle work only needs the
+                // 100 ms heartbeat deadline, on the same clock as nowNs().
+                commandsReady.wait_until(lock, std::chrono::steady_clock::time_point(std::chrono::nanoseconds(nextPing)),
+                    [&] { return !commands.empty() || stopping; });
+                if (stopping) break;
                 if (!commands.empty()) { auto c = commands.front(); commands.pop_front(); lock.unlock(); send(c); }
             }
         });
