@@ -27,6 +27,8 @@ if [[ ${1:-} == stream ]]; then
     validate_video
     if [[ $mode != live && $FORMAT == h264 ]]; then FORMAT=nv12; fi
     args=(--width "$WIDTH" --height "$HEIGHT" --fps "$FPS" --format "$FORMAT")
+    # Transport experiments change request scheduling, never video framing.
+    args+=(--usb-writes "${DECKUSB_USB_WRITES:-large}")
     if [[ $mode == live ]]; then
         packet_sizes=/dev/null
         if [[ $FORMAT == h264 ]]; then

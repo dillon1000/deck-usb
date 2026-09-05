@@ -24,6 +24,11 @@ case "${1:-mac}" in
     build/check-convert
     "${CXX:-c++}" "${includes[@]}" -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined tests/check-telemetry.cpp -o build/check-telemetry
     build/check-telemetry
+    if [[ $(uname) == Linux ]]; then
+      "${CXX:-c++}" "${includes[@]}" -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined \
+        tests/check-deck-writes.cpp -o build/check-deck-writes
+      build/check-deck-writes
+    fi
     if [[ $(uname) == Darwin ]]; then
       clang++ "${includes[@]}" -std=c++20 -O1 -g -fobjc-arc -Wall -Wextra -Werror -fsanitize=address,undefined \
         tests/check-mac.mm -framework Cocoa -o build/check-mac

@@ -3,6 +3,7 @@
 #include "deck-input.hpp"
 #include "deck-config.hpp"
 #include "deck-stats.hpp"
+#include "deck-video.hpp"
 #include <array>
 #include <atomic>
 #include <cerrno>
@@ -83,6 +84,7 @@ int main(int argc, char** argv) try {
     FILE* packetSizes = nullptr;
     bool synthetic = false, benchmark = false;
     std::string path = "/run/deckusb/ffs";
+    std::string usbWrites = "large";
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         auto value = [&]() -> const char* {
@@ -96,6 +98,7 @@ int main(int argc, char** argv) try {
         else if (arg == "--packet-sizes") { packetSizes = fopen(value(), "r"); require(packetSizes, "Open packet sizes"); }
         else if (arg == "--audio-fd") audioFd = std::stoi(value());
         else if (arg == "--fps") fps = std::stoul(value());
+        else if (arg == "--usb-writes") usbWrites = value();
         else if (arg == "--format") {
             std::string f = value();
             if (f != "nv12" && f != "bgra" && f != "h264") throw std::runtime_error("Use nv12, bgra, or h264");
@@ -115,6 +118,7 @@ int main(int argc, char** argv) try {
     int ep0 = openFd(path + "/ep0", O_RDWR);
     descriptors(ep0);
     int video = openFd(path + "/ep1", O_RDWR);
+    VideoWriter videoWriter(video, usbWrites);
     int commands = openFd(path + "/ep2", O_RDWR);
     int acks = openFd(path + "/ep3", O_RDWR);
     int audio = openFd(path + "/ep4", O_RDWR);
@@ -285,8 +289,7 @@ int main(int argc, char** argv) try {
             h.captureDoneNs = captureTime; sent = captured; pixels.swap(latest); h.bytes = pixels.size();
         }
         h.sendNs = nowNs();
-        writeAll(video, &h, sizeof(h));
-        writeAll(video, pixels.data(), pixels.size());
+        videoWriter.writeFrame(h, pixels.data(), pixels.size());
         if (synthetic && !benchmark && !testing) {
             deadline += std::chrono::nanoseconds(1000000000ULL / fps);
             if (deadline < std::chrono::steady_clock::now()) deadline = std::chrono::steady_clock::now();
