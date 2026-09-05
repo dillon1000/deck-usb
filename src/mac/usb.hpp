@@ -12,6 +12,9 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#ifdef __APPLE__
+#include <pthread.h>
+#endif
 
 namespace deckusb {
 // libusb handles host USB access only. There are no sockets or network fallbacks.
@@ -64,6 +67,11 @@ class USB {
     }
     template<class F> std::thread thread(F f) {
         return std::thread([this, f] {
+            // USB completions and input affect the current displayed frame.
+            // Match the render queue's QoS without changing process priority.
+#ifdef __APPLE__
+            (void)pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+#endif
             try { f(); } catch (const std::exception& e) { fail(e.what()); }
         });
     }

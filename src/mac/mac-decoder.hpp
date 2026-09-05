@@ -6,6 +6,7 @@
 #include <functional>
 #include <thread>
 #include <utility>
+#include <pthread.h>
 
 namespace deckusb {
 // One decoder per USB session, used only by its decode worker. Decode synchronously
@@ -129,6 +130,8 @@ class H264Worker {
     std::function<void(const Header&, const std::string&)> failed;
     std::thread worker;
     void run() {
+        // Decode serves the same visible frame as the render and USB workers.
+        (void)pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
         for (;;) {
             std::unique_lock lock(mutex);
             ready.wait(lock, [&] { return stopping || pending; });
