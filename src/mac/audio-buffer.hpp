@@ -12,13 +12,18 @@ class PcmBuffer {
     size_t head = 0, count = 0;
     bool primed = false;
     double phase = 0, speed = 1, filteredError = 0, stableSeconds = 0;
-    double minimumMs, targetMs;
+    double minimumMs = 20, targetMs = 20;
 public:
     uint64_t underruns = 0, trims = 0;
     // The minimum is a calibration input, not a lower hard-coded queue limit.
-    explicit PcmBuffer(double minimum = 20) : minimumMs(minimum), targetMs(minimum) {
+    explicit PcmBuffer(double minimum = 20) { setMinimumMilliseconds(minimum); }
+    // Change the floor without flushing sound or discarding headroom learned
+    // from USB gaps. Stable playback still removes that extra margin gradually.
+    void setMinimumMilliseconds(double minimum) {
         if (!std::isfinite(minimum) || minimum < 10 || minimum > 40)
             throw std::runtime_error("Audio target must be between 10 and 40 ms");
+        targetMs = std::clamp(targetMs + minimum - minimumMs, minimum, 40.0);
+        minimumMs = minimum; stableSeconds = 0;
     }
     size_t size() const { return count * audioChannels; }
     double targetMilliseconds() const { return targetMs; }

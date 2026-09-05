@@ -16,7 +16,7 @@ OSStatus AudioOutput::render(void* context, AudioUnitRenderActionFlags*, const A
     output->mBuffers[0].mDataByteSize = frames * 4; ++self.callbacks;
     return noErr;
 }
-AudioOutput::AudioOutput() {
+AudioOutput::AudioOutput(double minimum) : buffer(minimum) {
     AudioComponentDescription description{};
     description.componentType = kAudioUnitType_Output;
     description.componentSubType = kAudioUnitSubType_DefaultOutput;
@@ -51,6 +51,7 @@ double AudioOutput::bufferedMilliseconds() {
     std::lock_guard lock(mutex); return buffer.size() / double(audioChannels * 48);
 }
 double AudioOutput::targetMilliseconds() { std::lock_guard lock(mutex); return buffer.targetMilliseconds(); }
+void AudioOutput::setMinimumMilliseconds(double minimum) { std::lock_guard lock(mutex); buffer.setMinimumMilliseconds(minimum); }
 uint64_t AudioOutput::underruns() { std::lock_guard lock(mutex); return buffer.underruns; }
 void AudioOutput::report() {
     std::lock_guard lock(mutex);

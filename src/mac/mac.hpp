@@ -15,6 +15,7 @@ extern std::atomic<bool> forwardingInput, showingVideo, mutingAudio;
 extern std::unique_ptr<USB> usb;
 extern bool demo, syncDisplay, pipelinedUSB, useDisplayLink, tracePresentation;
 extern double sensitivity;
+extern double audioMinimumMs;
 
 // Pull bounded PCM from the USB receiver into Core Audio. Construction throws
 // on device errors; destruction stops the callback before releasing its state.
@@ -27,13 +28,14 @@ class AudioOutput {
     static OSStatus render(void* context, AudioUnitRenderActionFlags*, const AudioTimeStamp*,
                            UInt32, UInt32 frames, AudioBufferList* output);
 public:
-    AudioOutput();
+    explicit AudioOutput(double minimum = 20);
     ~AudioOutput();
     void receive(const AudioPacket& packet);
     std::string stats();
     double bufferedMilliseconds();
     uint64_t underruns();
     double targetMilliseconds();
+    void setMinimumMilliseconds(double minimum);
     void report();
 };
 extern std::unique_ptr<AudioOutput> audioOutput;
@@ -131,6 +133,7 @@ NSImage* symbol(NSString* name);
 @property NSPopUpButton* rate;
 @property NSPopUpButton* codec;
 @property NSPopUpButton* quality;
+@property NSPopUpButton* audioBufferSetting;
 @property NSButton* apply;
 @property NSButton* retest;
 @property NSButton* mute;
@@ -161,6 +164,7 @@ NSImage* symbol(NSString* name);
 - (void)primaryAction:(id)sender;
 - (void)secondaryAction:(id)sender;
 - (void)startupChanged:(id)sender;
+- (void)audioBufferChanged:(id)sender;
 - (void)metalHUDChanged:(id)sender;
 - (void)displaySyncChanged:(id)sender;
 - (void)restartViewer:(id)sender;

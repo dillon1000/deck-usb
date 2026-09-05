@@ -137,6 +137,15 @@ static NSStackView* row(NSArray<NSView*>* views, CGFloat spacing = 10) {
     [self.quality addItemWithTitle:@"Lower bandwidth"]; self.quality.lastItem.tag = 28;
     self.quality.accessibilityLabel = @"H.264 quality"; self.quality.enabled = NO;
     self.quality.toolTip = @"Lower bandwidth reduces detail and sends smaller frames. Click Apply to change H.264 quality.";
+    self.audioBufferSetting = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    for (unsigned ms : {20u, 15u, 12u}) {
+        [self.audioBufferSetting addItemWithTitle:[NSString stringWithFormat:@"%u ms%@", ms, ms == 20 ? @" (Default)" : @""]];
+        self.audioBufferSetting.lastItem.tag = ms;
+    }
+    [self.audioBufferSetting selectItemWithTag:NSInteger(audioMinimumMs)];
+    self.audioBufferSetting.accessibilityLabel = @"Audio buffer";
+    self.audioBufferSetting.target = self; self.audioBufferSetting.action = @selector(audioBufferChanged:);
+    self.audioBufferSetting.toolTip = @"Lower values reduce audio delay. Choose 20 ms if sound crackles. Changes apply immediately; automatic recovery stays on.";
     [self setSelections:{800, 500, 60}];
     self.apply = [self button:@"Apply" action:@selector(applySelection:)]; self.apply.keyEquivalent = @"\r";
     self.bandwidth = label(@"", 12); self.bandwidth.textColor = NSColor.secondaryLabelColor;
@@ -160,7 +169,7 @@ static NSStackView* row(NSArray<NSView*>* views, CGFloat spacing = 10) {
     resolutionNote.textColor = NSColor.secondaryLabelColor;
     [resolutionNote.widthAnchor constraintEqualToConstant:300].active = YES;
     NSGridView* form = [NSGridView gridViewWithViews:@[@[label(@"Resolution", 13), self.resolution], @[label(@"Frame rate", 13), self.rate],
-        @[label(@"Video", 13), self.codec], @[label(@"H.264 quality", 13), self.quality]]];
+        @[label(@"Video", 13), self.codec], @[label(@"H.264 quality", 13), self.quality], @[label(@"Audio buffer", 13), self.audioBufferSetting]]];
     form.rowSpacing = 16; form.columnSpacing = 24;
     [form columnAtIndex:0].xPlacement = NSGridCellPlacementLeading;
     [form columnAtIndex:1].xPlacement = NSGridCellPlacementTrailing;
@@ -171,7 +180,7 @@ static NSStackView* row(NSArray<NSView*>* views, CGFloat spacing = 10) {
     [self.bandwidth.widthAnchor constraintEqualToConstant:300].active = YES;
     [form.widthAnchor constraintEqualToConstant:300].active = YES;
     self.displaySettings = [NSPopover new]; self.displaySettings.behavior = NSPopoverBehaviorTransient;
-    auto settingsController = [NSViewController new]; settingsController.view = [[PanelSurface alloc] initWithFrame:NSMakeRect(0, 0, 348, 626)];
+    auto settingsController = [NSViewController new]; settingsController.view = [[PanelSurface alloc] initWithFrame:NSMakeRect(0, 0, 348, 662)];
     settingsBody.translatesAutoresizingMaskIntoConstraints = NO; [settingsController.view addSubview:settingsBody];
     [NSLayoutConstraint activateConstraints:@[[settingsBody.leadingAnchor constraintEqualToAnchor:settingsController.view.leadingAnchor constant:24],
         [settingsBody.topAnchor constraintEqualToAnchor:settingsController.view.topAnchor constant:24]]];

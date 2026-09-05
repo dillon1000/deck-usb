@@ -9,12 +9,15 @@ bool demo = false, syncDisplay = true, pipelinedUSB = true, useDisplayLink = fal
 // Optional per-frame timing writes to stderr; leave off during normal playback.
 bool tracePresentation = false;
 double sensitivity = 1.0;
+double audioMinimumMs = 20; // Original stable default; lower floors are opt-in.
 
 int main(int argc, const char** argv) {
     @autoreleasepool {
         try {
-            [NSUserDefaults.standardUserDefaults registerDefaults:@{@"syncDisplay": @YES}];
+            [NSUserDefaults.standardUserDefaults registerDefaults:@{@"syncDisplay": @YES, @"audioBufferMs": @20}];
             syncDisplay = [NSUserDefaults.standardUserDefaults boolForKey:@"syncDisplay"];
+            audioMinimumMs = [NSUserDefaults.standardUserDefaults doubleForKey:@"audioBufferMs"];
+            if (audioMinimumMs != 12 && audioMinimumMs != 15 && audioMinimumMs != 20) audioMinimumMs = 20;
             double seconds = 0;
             bool list = false;
             for (int i=1; i<argc; ++i) {

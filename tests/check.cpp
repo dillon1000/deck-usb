@@ -129,10 +129,18 @@ int main() {
     for (int i = 0; i < 13; ++i) audio.push(packet);
     assert(audio.trims == 1 && audio.size() == 5 * out.size()); // Gap raised target to 25 ms.
     audio.pop(out.data(), out.size()); assert(out.back() == 123);
+    auto queued = audio.size();
+    audio.setMinimumMilliseconds(12); assert(audio.targetMilliseconds() == 17 && audio.size() == queued);
+    audio.setMinimumMilliseconds(15); assert(audio.targetMilliseconds() == 20 && audio.size() == queued);
+    for (double invalid : {9.0, 41.0, std::numeric_limits<double>::quiet_NaN()}) {
+        bool rejected = false;
+        try { audio.setMinimumMilliseconds(invalid); } catch (const std::exception&) { rejected = true; }
+        assert(rejected && audio.targetMilliseconds() == 20);
+    }
     // Simulate two independent clocks for one minute in each direction.
     // The waveform checks stereo alignment and discontinuities, not just counts.
-    for (double drift : {-0.001, 0.001}) {
-        PcmBuffer clocked;
+    for (double minimum : {12.0, 15.0, 20.0}) for (double drift : {-0.001, 0.001}) {
+        PcmBuffer clocked(minimum);
         AudioPacket tone;
         uint64_t sample = 0;
         auto pushTone = [&] {
@@ -157,7 +165,7 @@ int main() {
             if (tick >= 6000) meanCorrection += clocked.correctionPPM() / 6000;
         }
         assert(clocked.underruns == 0 && clocked.trims == 0);
-        assert(clocked.size() > 10 * 48 * 2 && clocked.size() < 35 * 48 * 2);
+        assert(clocked.size() > (minimum - 8) * 48 * 2 && clocked.size() < 35 * 48 * 2);
         assert(meanCorrection * drift > 0 && std::abs(meanCorrection) < 2000);
     }
     std::cout << "Protocol bounds, malformed frames, input validation, key map, and audio buffering: PASS\n";

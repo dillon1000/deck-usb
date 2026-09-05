@@ -31,7 +31,7 @@
     usb.reset(); audioOutput.reset(); receivedFirst = false; liveMeter = TransferMeter{}; [self.graph clear];
     try {
         usb = std::make_unique<USB>(pipelinedUSB); usb->connect();
-        audioOutput = std::make_unique<AudioOutput>();
+        audioOutput = std::make_unique<AudioOutput>(audioMinimumMs);
         self.connection.stringValue = [NSString stringWithUTF8String:USB::speedName(usb->speed())];
         self.window.subtitle = usb->speed() >= LIBUSB_SPEED_SUPER ? @"USB 3 · Direct connection" : @"USB 2 · Limited bandwidth";
         auto decoder = std::make_shared<H264Worker>(((CAMetalLayer*)self.view.layer).device,
@@ -129,6 +129,16 @@
 - (void)startupChanged:(id)sender {
     (void)sender;
     [[NSUserDefaults standardUserDefaults] setBool:self.startupTest.state == NSControlStateValueOn forKey:@"testOnStart"];
+}
+// This changes only the adaptive audio floor. Preserve queued samples and the
+// gap-recovery margin; the output callback applies it under its existing lock.
+- (void)audioBufferChanged:(id)sender {
+    (void)sender;
+    double minimum = self.audioBufferSetting.selectedTag;
+    if (minimum != 12 && minimum != 15 && minimum != 20) return;
+    if (audioOutput) audioOutput->setMinimumMilliseconds(minimum);
+    audioMinimumMs = minimum;
+    [NSUserDefaults.standardUserDefaults setDouble:minimum forKey:@"audioBufferMs"];
 }
 - (void)changeTo:(VideoSetting)setting {
     if (!usb || !usb->running()) return;
