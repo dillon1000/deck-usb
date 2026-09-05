@@ -84,6 +84,20 @@ without corrupting later frames. The 12, 15, and 20 ms audio floors passed drift
 and waveform checks. A live 12 ms session recorded an interruption and increased
 its target to 17 ms as designed; 20 ms remains the default.
 
+A separate audio comparison used the same 10-second, 48 kHz stereo tone in
+fresh visible sessions, with a 12 ms selected floor. Each received 2,001 signal
+packets. The large writer added one underrun and six overflow trims; async
+added one underrun and no trims. Async had already increased its target to
+17 ms after a startup underrun before the tone, while large started at 12 ms.
+That difference prevents a claim that async improved audio. The checks also
+do not establish a glitch-free 12 ms floor. Both sessions used automatic
+recovery; the Mac output callback was 512 frames, or 10.67 ms at 48 kHz.
+
+The final viewer runs raw 1920 × 1200 at 60 fps with async writes and per-frame
+trace logging off. Its saved audio and display-sync choices are preserved.
+The service remained active with zero systemd restarts; deliberate stream
+restarts for settings and viewer reconnects are separate from this counter.
+
 Mac presentation timing varied with window and HUD activity, so it is not used
 to claim an end-to-end improvement here.
 
