@@ -52,7 +52,9 @@ int main(int argc, const char** argv) {
                     usb->start([](std::shared_ptr<Frame>) {}, [](std::string) {});
                     auto end = nowNs() + 3000000000ULL;
                     while (usb->running() && !usb->frames() && nowNs() < end) std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                    if (!usb->frames() || usb->writeMode() < 0) throw std::runtime_error("Update Deck setup before selecting its USB write mode");
+                    if (!usb->running() || !usb->frames())
+                        throw std::runtime_error("Could not read the Deck's USB write mode; wait for USB to reconnect and retry");
+                    if (usb->writeMode() < 0) throw std::runtime_error("Update Deck setup before selecting its USB write mode");
                     if (usb->writeMode() == writerMode) { usb->stop(); return 0; }
                     Command command; command.type = transport; command.value = writerMode; usb->enqueue(command);
                     end = nowNs() + 5000000000ULL;
