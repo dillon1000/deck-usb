@@ -34,17 +34,15 @@
         audioOutput = std::make_unique<AudioOutput>();
         self.connection.stringValue = [NSString stringWithUTF8String:USB::speedName(usb->speed())];
         self.window.subtitle = usb->speed() >= LIBUSB_SPEED_SUPER ? @"USB 3 · Direct connection" : @"USB 2 · Limited bandwidth";
-        usb->start([view=self.view, decoder=std::make_shared<H264Decoder>(((CAMetalLayer*)self.view.layer).device), connection=usb.get(), recovering=false](std::shared_ptr<Frame> f) mutable {
-                if (!showingVideo.load() || recovering) return;
-                const bool compressed = f->header.format == h264;
-                try { [view receive:decoder->decode(f)]; }
-                catch (const std::exception& e) {
-                    if (!compressed) throw;
-                    fprintf(stderr, "H.264 unavailable: %s; restoring raw video\n", e.what());
-                    Command c; c.type = configure; c.x = f->header.width; c.y = f->header.height;
-                    c.value = f->header.reserved[2]; c.code = nv12;
-                    recovering = true; connection->enqueue(c);
-                }
+        auto decoder = std::make_shared<H264Worker>(((CAMetalLayer*)self.view.layer).device,
+            [view=self.view](std::shared_ptr<DisplayFrame> frame) { if (showingVideo.load()) [view receive:std::move(frame)]; },
+            [connection=usb.get()](const Header& header, const std::string& error) {
+                fprintf(stderr, "H.264 unavailable: %s; restoring raw video\n", error.c_str());
+                Command c; c.type = configure; c.x = header.width; c.y = header.height;
+                c.value = header.reserved[2]; c.code = nv12; connection->enqueue(c);
+            });
+        usb->start([decoder](std::shared_ptr<Frame> frame) {
+                if (showingVideo.load()) decoder->submit(std::move(frame));
             }, [owner=self, attempt](std::string error) {
                 NSString* message = [NSString stringWithUTF8String:error.c_str()];
                 dispatch_async(dispatch_get_main_queue(), ^{
