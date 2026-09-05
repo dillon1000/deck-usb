@@ -6,13 +6,14 @@
 #import <AudioToolbox/AudioToolbox.h>
 #include "usb.hpp"
 #include "audio-buffer.hpp"
+#include "mac-frame.hpp"
 using namespace deckusb;
 
 // One viewer session, defined in mac.mm. Stop USB workers before destroying
 // audioOutput. Atomic gates are shared with USB, audio, and rendering callbacks.
 extern std::atomic<bool> forwardingInput, showingVideo, mutingAudio;
 extern std::unique_ptr<USB> usb;
-extern bool demo, syncDisplay, pipelinedUSB, useDisplayLink;
+extern bool demo, syncDisplay, pipelinedUSB, useDisplayLink, tracePresentation;
 extern double sensitivity;
 
 // Pull bounded PCM from the USB receiver into Core Audio. Construction throws
@@ -41,19 +42,19 @@ extern std::unique_ptr<AudioOutput> audioOutput;
 // New arrivals replace the pending frame; GPU completion schedules the newest.
 @interface DeckView : NSView <CAMetalDisplayLinkDelegate> {
     CAMetalDisplayLink* displayLink;
-    bool displayLinked;
+    std::atomic<bool> displayLinked;
     CAMetalLayer* metalLayer;
     dispatch_queue_t renderQueue;
     id<MTLCommandQueue> queue;
     id<MTLRenderPipelineState> pipeline;
     id<MTLTexture> plane0, plane1;
-    std::shared_ptr<Frame> latest;
+    std::shared_ptr<DisplayFrame> latest;
     std::mutex frameMutex;
     std::atomic<bool> drawQueued, renderStopped;
     std::atomic<unsigned> inputWidth, inputHeight;
     std::atomic<double> presentedDelayMs;
     double latestReceiveTime;
-    bool gpuBusy, presentationPending, captured;
+    bool gpuBusy, captured;
     uint64_t displayedFrames, lastDisplayedFrames, displayRateTime;
     std::atomic<double> displayFPS;
     std::atomic<uint64_t> presentedAtNs;
@@ -64,10 +65,11 @@ extern std::unique_ptr<AudioOutput> audioOutput;
     NSTrackingArea* tracking;
 }
 - (instancetype)initWithFrame:(NSRect)rect device:(id<MTLDevice>)device;
-- (void)receive:(std::shared_ptr<Frame>)frame;
+- (void)receive:(std::shared_ptr<DisplayFrame>)frame;
 - (void)renderFrame;
 - (void)renderDrawable:(id<CAMetalDrawable>)drawable;
 - (void)stopRendering;
+- (void)setDisplaySync:(BOOL)enabled;
 - (double)presentationDelay;
 - (double)presentationFPS;
 - (void)scheduleDraw;
@@ -120,6 +122,9 @@ NSImage* symbol(NSString* name);
 @property NSButton* primary;
 @property NSButton* secondary;
 @property NSButton* startupTest;
+@property NSButton* metalHUD;
+@property NSButton* displaySync;
+@property NSButton* restartViewer;
 @property NSPopUpButton* resolution;
 @property NSPopUpButton* rate;
 @property NSPopUpButton* codec;
@@ -139,6 +144,7 @@ NSImage* symbol(NSString* name);
 @property NSTextField* cableResult;
 @property NSTextField* displayTiming;
 @property NSLayoutConstraint* actionsWidth;
+@property NSLayoutConstraint* footerHeight;
 @property NSString* lastError;
 // Playback and connection transitions run on the AppKit main thread.
 - (void)card:(NSString*)title message:(NSString*)message icon:(NSString*)icon;
@@ -152,6 +158,9 @@ NSImage* symbol(NSString* name);
 - (void)primaryAction:(id)sender;
 - (void)secondaryAction:(id)sender;
 - (void)startupChanged:(id)sender;
+- (void)metalHUDChanged:(id)sender;
+- (void)displaySyncChanged:(id)sender;
+- (void)restartViewer:(id)sender;
 - (void)changeTo:(VideoSetting)setting;
 - (void)applySelection:(id)sender;
 - (void)muteAudio:(id)sender;
@@ -168,6 +177,8 @@ NSImage* symbol(NSString* name);
 - (void)applicationDidFinishLaunching:(NSNotification*)note;
 - (BOOL)validateMenuItem:(NSMenuItem*)item;
 - (void)windowDidResignKey:(NSNotification*)note;
+- (void)windowDidEnterFullScreen:(NSNotification*)note;
+- (void)windowDidExitFullScreen:(NSNotification*)note;
 - (void)applicationWillResignActive:(NSNotification*)note;
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication*)app;
 - (void)windowWillClose:(NSNotification*)note;

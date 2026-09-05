@@ -1,5 +1,6 @@
 #pragma once
 #include "protocol.hpp"
+#include "frame.hpp"
 #include "usb-video.hpp"
 #include <libusb.h>
 #include <atomic>
@@ -173,7 +174,7 @@ public:
                     throw std::runtime_error("Invalid USB acknowledgment");
                 double rtt = (received - pong.nonce) / 1e6;
                 std::lock_guard lock(statsMutex);
-                // retain the latest 600 samples (one minute); use a ring
+                // ponytail: retain the latest 600 samples (one minute); use a ring
                 // only if this small, once-per-100-ms erase becomes measurable.
                 if (roundTrips.size() == 600) roundTrips.erase(roundTrips.begin());
                 roundTrips.push_back(rtt);
@@ -189,13 +190,14 @@ public:
         });
         videoThread = thread([this, onFrame] {
             VideoReads reads(context, handle, videoEndpoint, stopping);
+            auto buffers = std::make_shared<FrameBuffers>();
             uint64_t previous = 0;
             while (!stopping) {
-                auto frame = std::make_shared<Frame>();
+                auto frame = std::make_shared<Frame>(buffers);
                 read(&frame->header, sizeof(Header), videoEndpoint); validate(frame->header);
                 if (frame->header.sequence <= previous) throw std::runtime_error("Frame sequence moved backward");
                 previous = frame->header.sequence;
-                frame->pixels.resize(frame->header.bytes);
+                frame->pixels = buffers->acquire(frame->header.bytes);
                 uint64_t payloadStart = nowNs();
                 if (pipelined) reads.read(frame->pixels.data(), frame->pixels.size());
                 else read(frame->pixels.data(), frame->pixels.size(), videoEndpoint);

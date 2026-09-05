@@ -1,0 +1,14 @@
+[Unit]
+Description=DeckUSB direct USB video, audio and input
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=SUDO_USER=@USER@
+WorkingDirectory=/var/lib/deckusb/app
+ExecStart=/usr/bin/bash /var/lib/deckusb/app/scripts/service.sh
+Restart=on-failure
+RestartSec=3
+# Let the supervisor restore the USB controller before killing leftover children.
+KillMode=mixed
+TimeoutStopSec=15

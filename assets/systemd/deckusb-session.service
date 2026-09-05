@@ -1,0 +1,13 @@
+[Unit]
+Description=Start DeckUSB with the display session
+PartOf=graphical-session.target
+After=graphical-session-pre.target gamescope-session.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/systemctl start deckusb.service
+ExecStop=/usr/bin/systemctl stop deckusb.service
+
+[Install]
+WantedBy=graphical-session.target

@@ -33,7 +33,7 @@
         audioOutput = std::make_unique<AudioOutput>();
         self.connection.stringValue = [NSString stringWithUTF8String:USB::speedName(usb->speed())];
         self.window.subtitle = usb->speed() >= LIBUSB_SPEED_SUPER ? @"USB 3 · Direct connection" : @"USB 2 · Limited bandwidth";
-        usb->start([view=self.view, decoder=std::make_shared<H264Decoder>(), connection=usb.get(), recovering=false](std::shared_ptr<Frame> f) mutable {
+        usb->start([view=self.view, decoder=std::make_shared<H264Decoder>(((CAMetalLayer*)self.view.layer).device), connection=usb.get(), recovering=false](std::shared_ptr<Frame> f) mutable {
                 if (!showingVideo.load() || recovering) return;
                 const bool compressed = f->header.format == h264;
                 try { [view receive:decoder->decode(f)]; }
@@ -77,7 +77,7 @@
 }
 - (VideoSetting)selection {
     unsigned width = unsigned(self.resolution.selectedTag);
-    return {width, width * 5 / 8, unsigned(self.rate.selectedTag), unsigned(self.codec.selectedTag)};
+    return {width, [self.resolution.selectedItem.representedObject unsignedIntValue], unsigned(self.rate.selectedTag), unsigned(self.codec.selectedTag)};
 }
 - (void)play {
     // Stop benchmark mode before accepting input. The next live frame confirms
@@ -154,7 +154,12 @@
     (void)sender;
     [self.displaySettings close];
     if (self.details.shown) { [self.details close]; return; }
-    [self.details showRelativeToRect:self.infoButton.bounds ofView:self.infoButton preferredEdge:NSRectEdgeMaxY];
+    // The footer disappears in full screen; the menu shortcut uses the video
+    // corner as its anchor so diagnostics remain accessible without a toolbar.
+    bool fullScreen = self.window.styleMask & NSWindowStyleMaskFullScreen;
+    NSView* anchor = fullScreen ? self.view : self.infoButton;
+    NSRect rect = fullScreen ? NSMakeRect(NSWidth(anchor.bounds) - 24, 8, 1, 1) : anchor.bounds;
+    [self.details showRelativeToRect:rect ofView:anchor preferredEdge:NSRectEdgeMaxY];
 }
 - (void)tick {
     if (demo) return;
@@ -260,6 +265,35 @@
     (void)sender;
     [self setSelections:recommend(measuredMB, true)]; [self updateBandwidth:nil];
 }
+// HUD instrumentation is selected at launch, so disabling it also removes its
+// measurement overhead on restart. Keep the preference local to this app.
+- (void)metalHUDChanged:(id)sender {
+    (void)sender;
+    [NSUserDefaults.standardUserDefaults setBool:self.metalHUD.state == NSControlStateValueOn forKey:@"MetalHUDForceEnabled"];
+    self.restartViewer.enabled = YES;
+}
+- (void)displaySyncChanged:(id)sender {
+    (void)sender;
+    syncDisplay = self.displaySync.state == NSControlStateValueOn;
+    [NSUserDefaults.standardUserDefaults setBool:syncDisplay forKey:@"syncDisplay"];
+    [self.view setDisplaySync:syncDisplay];
+    fprintf(stderr, "Display sync: %s\n", syncDisplay ? "on" : "off");
+}
+- (void)restartViewer:(id)sender {
+    (void)sender; [self.view releaseInput];
+    auto configuration = [NSWorkspaceOpenConfiguration configuration];
+    configuration.createsNewApplicationInstance = YES;
+    configuration.arguments = [NSProcessInfo.processInfo.arguments subarrayWithRange:NSMakeRange(1, NSProcessInfo.processInfo.arguments.count - 1)];
+    configuration.environment = @{@"MTL_HUD_ENABLED": self.metalHUD.state == NSControlStateValueOn ? @"1" : @"0"};
+    [NSWorkspace.sharedWorkspace openApplicationAtURL:NSBundle.mainBundle.bundleURL configuration:configuration
+        completionHandler:^(NSRunningApplication* application, NSError* error) {
+            (void)application;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (error) { self.bandwidth.stringValue = error.localizedDescription; return; }
+                [NSApp terminate:nil];
+            });
+        }];
+}
 - (void)updateBandwidth:(id)sender {
     (void)sender;
     auto s = [self selection];
@@ -285,6 +319,14 @@
     return YES;
 }
 - (void)windowDidResignKey:(NSNotification*)note { (void)note; [self.view releaseInput]; }
+// Let the opaque Metal surface fill the full-screen content area. Keeping a
+// separate footer can prevent the system's direct-to-display composition path.
+- (void)windowDidEnterFullScreen:(NSNotification*)note {
+    (void)note; [self.details close]; self.footerHeight.constant = 0; self.status.superview.hidden = YES;
+}
+- (void)windowDidExitFullScreen:(NSNotification*)note {
+    (void)note; [self.details close]; self.footerHeight.constant = 30; self.status.superview.hidden = NO;
+}
 - (void)applicationWillResignActive:(NSNotification*)note { (void)note; [self.view releaseInput]; }
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication*)app { (void)app; return YES; }
 - (void)windowWillClose:(NSNotification*)note { (void)note; self.closing = YES; }

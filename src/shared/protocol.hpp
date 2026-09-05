@@ -140,5 +140,4 @@ inline VideoSetting recommend(double megabytes, bool lowLatency = false) {
             return {width, width * 5 / 8, fps};
     return {640, 400, 30};
 }
-struct Frame { Header header; std::vector<uint8_t> pixels; uint64_t receivedNs = 0; double decodeMs = 0; };
 }

@@ -8,6 +8,7 @@
     if (!self) return nil;
     self.wantsLayer = YES; self.layer = metalLayer = [CAMetalLayer layer];
     metalLayer.device = device; metalLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+    metalLayer.opaque = YES; metalLayer.backgroundColor = CGColorGetConstantColor(kCGColorBlack);
     metalLayer.maximumDrawableCount = 2; metalLayer.displaySyncEnabled = syncDisplay;
     self.accessibilityLabel = @"Steam Deck display";
     renderQueue = dispatch_queue_create("DeckUSB.render", dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0));
@@ -55,9 +56,13 @@
         }
     }
     fprintf(stderr, "Presentation: %s\n", displayLinked ? "display link" : "arrival driven");
+    if (tracePresentation) fprintf(stderr, "Display sync: %s\n", syncDisplay ? "on" : "off");
     return self;
 }
 - (BOOL)acceptsFirstResponder { return YES; }
+// Both the video shader and letterbox clear write alpha 1. Tell AppKit it does
+// not need to draw content behind this surface, including before its first frame.
+- (BOOL)isOpaque { return YES; }
 - (BOOL)acceptsFirstMouse:(NSEvent*)event { (void)event; return YES; }
 - (void)updateTrackingAreas {
     [super updateTrackingAreas];
@@ -76,7 +81,7 @@
     [self scheduleDraw];
 }
 - (void)viewDidChangeBackingProperties { [super viewDidChangeBackingProperties]; [self setNeedsLayout:YES]; }
-- (void)receive:(std::shared_ptr<Frame>)frame {
+- (void)receive:(std::shared_ptr<DisplayFrame>)frame {
     if (renderStopped) return;
     decodeDelayMs = frame->decodeMs;
     inputWidth = frame->header.width; inputHeight = frame->header.height;
@@ -108,39 +113,55 @@
     if (@available(macOS 14.0, *)) [displayLink invalidate];
     std::lock_guard lock(frameMutex); latest.reset();
 }
+// The settings action runs on AppKit. Pausing the optional display link lets
+// arrival-driven rendering take over immediately; no USB reconnect is needed.
+- (void)setDisplaySync:(BOOL)enabled {
+    metalLayer.displaySyncEnabled = enabled;
+    if (displayLink) { displayLinked = enabled; displayLink.paused = !enabled; }
+    [self scheduleDraw];
+}
 // Only this serial queue touches GPU state. Acquire the drawable before taking
 // the latest frame, and never run AppKit methods while waiting for scanout.
 - (void)renderFrame {
-    if (!showingVideo || renderStopped || gpuBusy || presentationPending) return;
+    if (!showingVideo || renderStopped || gpuBusy) return;
     { std::lock_guard lock(frameMutex); if (!latest) return; }
     [self renderDrawable:[metalLayer nextDrawable]];
 }
 - (void)renderDrawable:(id<CAMetalDrawable>)drawable {
-    if (!drawable || !showingVideo || renderStopped || gpuBusy || presentationPending) return;
-    std::shared_ptr<Frame> frame;
+    if (!drawable || !showingVideo || renderStopped || gpuBusy) return;
+    std::shared_ptr<DisplayFrame> frame;
     double receivedTime;
     { std::lock_guard lock(frameMutex); frame.swap(latest); receivedTime = latestReceiveTime; }
     if (!frame) return;
+    double renderStart = CACurrentMediaTime();
     auto pass = [MTLRenderPassDescriptor renderPassDescriptor];
     pass.colorAttachments[0].texture = drawable.texture;
     pass.colorAttachments[0].loadAction = MTLLoadActionClear;
     pass.colorAttachments[0].storeAction = MTLStoreActionStore;
     pass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
     auto& h = frame->header;
-    if (!plane0 || width != h.width || height != h.height || format != h.format) {
-        width = h.width; height = h.height; format = h.format;
-        auto texture = [&](MTLPixelFormat pixelFormat, unsigned w, unsigned hh) {
-            auto d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:pixelFormat width:w height:hh mipmapped:NO];
-            d.storageMode = MTLStorageModeShared; d.usage = MTLTextureUsageShaderRead;
-            return [metalLayer.device newTextureWithDescriptor:d];
-        };
-        plane0 = texture(format == nv12 ? MTLPixelFormatR8Unorm : MTLPixelFormatBGRA8Unorm, width, height);
-        plane1 = texture(MTLPixelFormatRG8Unorm, width / 2, height / 2);
+    width = h.width; height = h.height; format = h.format;
+    id<MTLTexture> texture0, texture1;
+    if (frame->surface) {
+        texture0 = CVMetalTextureGetTexture(frame->luma.get());
+        texture1 = CVMetalTextureGetTexture(frame->chroma.get());
+    } else {
+        MTLPixelFormat pixelFormat = format == nv12 ? MTLPixelFormatR8Unorm : MTLPixelFormatBGRA8Unorm;
+        if (!plane0 || plane0.width != width || plane0.height != height || plane0.pixelFormat != pixelFormat) {
+            auto texture = [&](MTLPixelFormat pixels, unsigned w, unsigned hh) {
+                auto d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:pixels width:w height:hh mipmapped:NO];
+                d.storageMode = MTLStorageModeShared; d.usage = MTLTextureUsageShaderRead;
+                return [metalLayer.device newTextureWithDescriptor:d];
+            };
+            plane0 = texture(pixelFormat, width, height);
+            plane1 = texture(MTLPixelFormatRG8Unorm, width / 2, height / 2);
+        }
+        [plane0 replaceRegion:MTLRegionMake2D(0, 0, width, height) mipmapLevel:0
+            withBytes:frame->pixels.data() bytesPerRow:width * (format == nv12 ? 1 : 4)];
+        if (format == nv12) [plane1 replaceRegion:MTLRegionMake2D(0, 0, width/2, height/2) mipmapLevel:0
+            withBytes:frame->pixels.data() + width*height bytesPerRow:width];
+        texture0 = plane0; texture1 = plane1;
     }
-    [plane0 replaceRegion:MTLRegionMake2D(0, 0, width, height) mipmapLevel:0
-        withBytes:frame->pixels.data() bytesPerRow:width * (format == nv12 ? 1 : 4)];
-    if (format == nv12) [plane1 replaceRegion:MTLRegionMake2D(0, 0, width/2, height/2) mipmapLevel:0
-        withBytes:frame->pixels.data() + width*height bytesPerRow:width];
     auto command = [queue commandBuffer];
     auto encoder = [command renderCommandEncoderWithDescriptor:pass];
     CGSize drawableSize = CGSizeMake(drawable.texture.width, drawable.texture.height);
@@ -148,22 +169,24 @@
     [encoder setViewport:MTLViewport{(drawableSize.width-width*scale)/2,
         (drawableSize.height-height*scale)/2, width*scale, height*scale, 0, 1}];
     [encoder setRenderPipelineState:pipeline];
-    [encoder setFragmentTexture:plane0 atIndex:0]; [encoder setFragmentTexture:plane1 atIndex:1];
+    [encoder setFragmentTexture:texture0 atIndex:0]; [encoder setFragmentTexture:texture1 atIndex:1];
     [encoder setFragmentBytes:&format length:sizeof(format) atIndex:0];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
     [encoder endEncoding];
     submitDelayMs = (nowNs() - frame->receivedNs) / 1e6; ++rendered;
-    // GPU completion does not mean scanout has occurred. Keep just one frame
-    // awaiting presentation so faster capture replaces pending work, not scanout.
-    gpuBusy = true; presentationPending = true;
+    double submittedTime = CACurrentMediaTime();
+    uint64_t sequence = h.sequence;
+    gpuBusy = true;
     // presentedTime and CACurrentMediaTime use the same host clock. This excludes
     // Deck capture/USB time and measures presentation, not callback delivery lag.
     [drawable addPresentedHandler:^(id<MTLDrawable> presented) {
         double displayed = presented.presentedTime;
         dispatch_async(renderQueue, ^{
-            presentationPending = false;
-            [self scheduleDraw];
             if (displayed < receivedTime) return;
+            // Match all stages to one frame. The UI's latest-stage values can
+            // refer to different frames and cannot form a latency distribution.
+            if (tracePresentation) fprintf(stderr, "Present: %llu %.9f %.9f %.9f %.9f\n",
+                static_cast<unsigned long long>(sequence), receivedTime, renderStart, submittedTime, displayed);
             presentedDelayMs = (displayed - receivedTime) * 1000; presentedAtNs = nowNs();
             ++displayedFrames;
             double seconds = (nowNs() - displayRateTime) / 1e9;
@@ -175,12 +198,12 @@
     }];
     [command presentDrawable:drawable];
     [command addCompletedHandler:^(id<MTLCommandBuffer> completed) {
+        // Keep the pixel buffer and CVMetalTexture wrappers alive through GPU use.
+        (void)frame;
         dispatch_async(renderQueue, ^{
             gpuBusy = false;
-            if (completed.status == MTLCommandBufferStatusError) {
-                presentationPending = false;
+            if (completed.status == MTLCommandBufferStatusError)
                 NSLog(@"Metal: %@", completed.error);
-            }
             [self scheduleDraw];
         });
     }];

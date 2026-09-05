@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=DeckUSB
+Comment=Send the Deck display and controls through USB
+Icon=computer-laptop
+Exec=/usr/bin/systemctl start deckusb.service
+Terminal=false
+Categories=Game;

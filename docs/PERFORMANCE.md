@@ -7,12 +7,13 @@ benchmark results are included in this repository.
 ## What the counters mean
 
 - USB payload-read time measures receipt of a frame payload on the host.
-- Deck queue time starts after FFmpeg supplies a complete frame. It excludes
+- Deck queue time starts after the capture process supplies a complete frame. It excludes
   capture, conversion, and encoding.
 - Mac receive-to-submit time includes decoding and GPU submission.
 - Mac receive-to-display time includes decoding and presentation. Hidden windows
   may not produce valid presentation samples.
-- Decode time includes hardware decoding and the copy into the NV12 renderer.
+- Decode time includes hardware decoding and mapping its pixel buffer into
+  Metal textures. Decoded NV12 planes are not copied into another frame buffer.
 - Control RTT is a message round trip, not input-to-photon latency.
 - Audio buffering excludes the output device's own delay.
 
@@ -38,6 +39,12 @@ resources. Raw NV12 requires width × height × 1.5 × fps bytes per second, plu
 audio and framing. H.264 traffic depends on the scene and quality setting.
 Use the cable test instead of assuming advertised USB speed is achievable.
 
-Keep display sync enabled if tearing is unacceptable. Test serial USB reads or
+For per-frame Mac presentation timing, run the viewer with `--trace-present`
+and save its stderr to a file. Keep the window visible while measuring, then
+run `python3 scripts/measure-presentation.py LOG` for percentiles and frame
+intervals. Trace output adds logging work, so use it only for measurements.
+
+Keep **Prevent screen tearing** enabled in Display settings if tearing is
+unacceptable. Its saved setting applies immediately. Test serial USB reads or
 display-linked rendering only as controlled comparisons, and keep a change only
 when the relevant measurements improve without unacceptable regressions.

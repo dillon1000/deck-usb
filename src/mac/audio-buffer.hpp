@@ -46,7 +46,7 @@ public:
         // Estimate midpoint occupancy and smooth packet/callback jitter over
         // half a second. Limit speed changes to 0.5%; never drop individual
         // samples for normal clock drift. Both channels use the same phase.
-        // linear interpolation limits CPU cost; use a band-limited
+        // ponytail: linear interpolation limits CPU cost; use a band-limited
         // resampler if high-frequency attenuation becomes audible.
         double error = (double(count) - double(frames) / 2) * 1000 / audioRate - targetMs;
         filteredError += (1 - std::exp(-seconds / 0.5)) * (error - filteredError);

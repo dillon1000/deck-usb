@@ -116,9 +116,11 @@ static NSStackView* row(NSArray<NSView*>* views, CGFloat spacing = 10) {
     self.window.toolbar = toolbar;
 
     self.resolution = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    for (unsigned w : {640u, 800u, 960u, 1280u}) {
-        [self.resolution addItemWithTitle:[NSString stringWithFormat:@"%u × %u", w, w * 5 / 8]];
-        self.resolution.lastItem.tag = w;
+    for (auto size : {std::array<unsigned, 2>{640, 400}, {800, 500}, {960, 600}, {1280, 800},
+        {1600, 1000}, {1920, 1080}, {1920, 1200}}) {
+        [self.resolution addItemWithTitle:[NSString stringWithFormat:@"%u × %u", size[0], size[1]]];
+        self.resolution.lastItem.tag = size[0];
+        self.resolution.lastItem.representedObject = @(size[1]);
     }
     self.resolution.accessibilityLabel = @"Resolution";
     self.resolution.target = self; self.resolution.action = @selector(updateBandwidth:);
@@ -134,18 +136,35 @@ static NSStackView* row(NSArray<NSView*>* views, CGFloat spacing = 10) {
     self.bandwidth = label(@"", 12); self.bandwidth.textColor = NSColor.secondaryLabelColor;
     self.startupTest = [NSButton checkboxWithTitle:@"Test cable at startup" target:self action:@selector(startupChanged:)];
     self.startupTest.state = testNeeded ? NSControlStateValueOn : NSControlStateValueOff;
+    self.metalHUD = [NSButton checkboxWithTitle:@"Metal performance HUD" target:self action:@selector(metalHUDChanged:)];
+    self.metalHUD.state = [NSUserDefaults.standardUserDefaults boolForKey:@"MetalHUDForceEnabled"] ? NSControlStateValueOn : NSControlStateValueOff;
+    self.metalHUD.toolTip = @"Apple’s graphics statistics overlay. Restart the viewer to apply a change.";
+    self.displaySync = [NSButton checkboxWithTitle:@"Prevent screen tearing" target:self action:@selector(displaySyncChanged:)];
+    self.displaySync.state = syncDisplay ? NSControlStateValueOn : NSControlStateValueOff;
+    self.displaySync.toolTip = @"Turn off for lower display delay. Fast movement may show tearing. Changes apply immediately.";
+    auto syncNote = label(@"Turn off for less delay. Fast movement may show tearing.", 12);
+    syncNote.textColor = NSColor.secondaryLabelColor;
+    [syncNote.widthAnchor constraintEqualToConstant:300].active = YES;
+    auto syncControls = [NSStackView stackViewWithViews:@[self.displaySync, syncNote]];
+    syncControls.orientation = NSUserInterfaceLayoutOrientationVertical;
+    syncControls.alignment = NSLayoutAttributeLeading; syncControls.spacing = 4;
+    self.restartViewer = [self button:@"Restart viewer" action:@selector(restartViewer:)];
+    self.restartViewer.enabled = NO;
+    auto resolutionNote = label(@"Desktop Mode renders at larger sizes after updating Deck setup. Games may need borderless mode. Gaming Mode currently scales larger streams.", 12);
+    resolutionNote.textColor = NSColor.secondaryLabelColor;
+    [resolutionNote.widthAnchor constraintEqualToConstant:300].active = YES;
     NSGridView* form = [NSGridView gridViewWithViews:@[@[label(@"Resolution", 13), self.resolution], @[label(@"Frame rate", 13), self.rate], @[label(@"Video", 13), self.codec]]];
     form.rowSpacing = 16; form.columnSpacing = 24;
     [form columnAtIndex:0].xPlacement = NSGridCellPlacementLeading;
     [form columnAtIndex:1].xPlacement = NSGridCellPlacementTrailing;
     auto lowLatency = [self button:@"Low latency preset" action:@selector(selectLowLatency:)];
     lowLatency.toolTip = @"Choose 640 × 400 at up to 90 fps, within the measured cable speed. Click Apply to use it.";
-    auto settingsBody = [NSStackView stackViewWithViews:@[label(@"Display", 17, NSFontWeightSemibold), form, lowLatency, self.bandwidth, self.startupTest, self.apply]];
+    auto settingsBody = [NSStackView stackViewWithViews:@[label(@"Display", 17, NSFontWeightSemibold), form, resolutionNote, lowLatency, self.bandwidth, syncControls, self.startupTest, row(@[self.metalHUD, self.restartViewer], 12), self.apply]];
     settingsBody.orientation = NSUserInterfaceLayoutOrientationVertical; settingsBody.alignment = NSLayoutAttributeLeading; settingsBody.spacing = 20;
     [self.bandwidth.widthAnchor constraintEqualToConstant:300].active = YES;
     [form.widthAnchor constraintEqualToConstant:300].active = YES;
     self.displaySettings = [NSPopover new]; self.displaySettings.behavior = NSPopoverBehaviorTransient;
-    auto settingsController = [NSViewController new]; settingsController.view = [[PanelSurface alloc] initWithFrame:NSMakeRect(0, 0, 348, 408)];
+    auto settingsController = [NSViewController new]; settingsController.view = [[PanelSurface alloc] initWithFrame:NSMakeRect(0, 0, 348, 590)];
     settingsBody.translatesAutoresizingMaskIntoConstraints = NO; [settingsController.view addSubview:settingsBody];
     [NSLayoutConstraint activateConstraints:@[[settingsBody.leadingAnchor constraintEqualToAnchor:settingsController.view.leadingAnchor constant:24],
         [settingsBody.topAnchor constraintEqualToAnchor:settingsController.view.topAnchor constant:24]]];
@@ -158,6 +177,7 @@ static NSStackView* row(NSArray<NSView*>* views, CGFloat spacing = 10) {
     self.infoButton.bordered = NO; self.infoButton.toolTip = @"Connection details"; self.infoButton.accessibilityLabel = @"Connection details";
     auto footerRight = row(@[self.performance, self.infoButton], 12);
     auto footer = [NSView new]; footer.translatesAutoresizingMaskIntoConstraints = NO; [root addSubview:footer];
+    self.footerHeight = [footer.heightAnchor constraintEqualToConstant:30];
     self.status.translatesAutoresizingMaskIntoConstraints = footerRight.translatesAutoresizingMaskIntoConstraints = NO;
     [footer addSubview:self.status]; [footer addSubview:footerRight];
 
@@ -205,7 +225,7 @@ static NSStackView* row(NSArray<NSView*>* views, CGFloat spacing = 10) {
     [card.widthAnchor constraintEqualToConstant:460].active = YES;
     [NSLayoutConstraint activateConstraints:@[
         [footer.leadingAnchor constraintEqualToAnchor:root.leadingAnchor], [footer.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
-        [footer.bottomAnchor constraintEqualToAnchor:root.bottomAnchor], [footer.heightAnchor constraintEqualToConstant:30],
+        [footer.bottomAnchor constraintEqualToAnchor:root.bottomAnchor], self.footerHeight,
         [self.status.leadingAnchor constraintEqualToAnchor:footer.leadingAnchor constant:16], [self.status.centerYAnchor constraintEqualToAnchor:footer.centerYAnchor],
         [footerRight.trailingAnchor constraintEqualToAnchor:footer.trailingAnchor constant:-14], [footerRight.centerYAnchor constraintEqualToAnchor:footer.centerYAnchor],
         [self.view.topAnchor constraintEqualToAnchor:root.topAnchor], [self.view.bottomAnchor constraintEqualToAnchor:footer.topAnchor],

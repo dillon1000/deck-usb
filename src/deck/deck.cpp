@@ -106,6 +106,11 @@ int main(int argc, char** argv) try {
     frameBytes(base.width, base.height, nv12);
     if (base.format == h264 && (!packetSizes || synthetic)) throw std::runtime_error("H.264 needs live packet framing");
     base.bytes = base.format == h264 ? 0 : frameBytes(base.width, base.height, base.format);
+    // Give FFmpeg room for larger writes without adding a full-size frame queue.
+    // This only changes a live raw input pipe. Kernel limits or a regular file
+    // can reject the hint; capture still works with the original pipe capacity.
+    if (!synthetic && base.bytes >= 1024 * 1024)
+        (void)fcntl(STDIN_FILENO, F_SETPIPE_SZ, 1024 * 1024);
     int ep0 = openFd(path + "/ep0", O_RDWR);
     descriptors(ep0);
     int video = openFd(path + "/ep1", O_RDWR);

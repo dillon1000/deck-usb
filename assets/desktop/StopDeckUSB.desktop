@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Stop DeckUSB
+Comment=Stop the USB session and restore the USB port
+Icon=process-stop
+Exec=/usr/bin/systemctl stop deckusb.service
+Terminal=false
+Categories=Game;

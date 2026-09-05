@@ -5,6 +5,7 @@ source ./scripts/hardware.sh
 
 # The desktop user owns the FIFO. Stopping needs neither sudo nor an OSK Control key.
 if [[ ${1:-} == stop ]]; then
+    if [[ -f /etc/systemd/system/deckusb.service && $EUID != 0 ]]; then exec systemctl stop deckusb.service; fi
     [[ -p /run/deckusb/control ]] || exit 0
     exec timeout 3 bash -c 'printf "stop\n" > /run/deckusb/control'
 fi
@@ -16,7 +17,7 @@ validate_video() {
 }
 
 # The capture process runs as the desktop user. Only USB setup and uinput need
-# root. No package install, persistent service, firewall change, or Wi-Fi path.
+# root. The optional installer runs this same supervisor as a system service.
 if [[ ${1:-} == stream ]]; then
     mode=$2
     # Optional four-value file permits resolution tests without restarting sudo.
@@ -27,44 +28,16 @@ if [[ ${1:-} == stream ]]; then
     if [[ $mode != live && $FORMAT == h264 ]]; then FORMAT=nv12; fi
     args=(--width "$WIDTH" --height "$HEIGHT" --fps "$FPS" --format "$FORMAT")
     if [[ $mode == live ]]; then
-        session_env=$(runuser -u "$DESKTOP_USER" -- env XDG_RUNTIME_DIR="/run/user/$DESKTOP_UID" systemctl --user show-environment)
-        display=$(sed -n 's/^DISPLAY=//p' <<< "$session_env")
-        authority=$(sed -n 's/^XAUTHORITY=//p' <<< "$session_env")
-        [[ -n $display && -n $authority ]] || { echo 'Desktop X11 session is unavailable.' >&2; exit 1; }
-        # Explicit BT.709 limited range matches the Mac renderer and decoder.
-        ffmpeg=(ffmpeg -hide_banner -loglevel warning -nostdin -fflags nobuffer)
-        pixel_format=$FORMAT; packet_sizes=/dev/null
+        packet_sizes=/dev/null
         if [[ $FORMAT == h264 ]]; then
-            pixel_format=nv12
-            # Prefer an explicit render node; otherwise require one AMD render node.
-            render_node=${VAAPI_DEVICE:-}
-            if [[ -z $render_node ]]; then
-                render_node=$(find_render_node)
-            fi
-            ffmpeg+=(-vaapi_device "$render_node")
             packet_dir=$(mktemp -d /run/deckusb/packets.XXXXXX)
             packet_sizes=$packet_dir/sizes; mkfifo -m 600 "$packet_sizes"
             chmod 711 "$packet_dir"; chown "$DESKTOP_UID" "$packet_sizes"
             trap 'rm -f -- "$packet_sizes"; rmdir -- "$packet_dir"' EXIT
             args+=(--packet-sizes "$packet_sizes")
         fi
-        filter="scale=$WIDTH:$HEIGHT:flags=fast_bilinear:out_color_matrix=bt709:out_range=tv,format=$pixel_format,setpts=N/($FPS*TB)"
-        if [[ $FORMAT == h264 ]]; then
-            # all-IDR frames make latest-frame dropping safe. Add a
-            # bounded GOP/recovery path only if intra bandwidth becomes a limit.
-            # QP 20 is the initial quality target; smaller values cost more USB.
-            encoder=(-map 0:v -vf "$filter,hwupload" -an -c:v h264_vaapi -qp 20
-                -g 1 -bf 0 -async_depth 1 -threads 1 -color_range tv -colorspace bt709
-                -fps_mode passthrough -f tee "[f=framecrc:flush_packets=1]$packet_sizes|[f=h264:flush_packets=1]pipe:1")
-        else
-            encoder=(-vf "$filter" -an -c:v rawvideo -threads 1 -fps_mode passthrough
-                -flush_packets 1 -f rawvideo pipe:1)
-        fi
-        # Sizes are written before each payload, through a separate FIFO.
-        # No lookahead to the next encoded frame and no root capture process.
-        runuser -u "$DESKTOP_USER" -- env DISPLAY="$display" XAUTHORITY="$authority" \
-            "${ffmpeg[@]}" -probesize 32 -analyzeduration 0 -f x11grab -draw_mouse 0 \
-            -framerate "$FPS" -i "$display" "${encoder[@]}" \
+        runuser -u "$DESKTOP_USER" -- env XDG_RUNTIME_DIR="/run/user/$DESKTOP_UID" \
+            bash "$PWD/scripts/capture.sh" "$WIDTH" "$HEIGHT" "$FPS" "$FORMAT" "$packet_sizes" \
             | ./build/deck-usb "${args[@]}" --audio-fd 3 3< <(
                 runuser -u "$DESKTOP_USER" -- env XDG_RUNTIME_DIR="/run/user/$DESKTOP_UID" \
                     bash "$PWD/scripts/audio.sh")
@@ -86,12 +59,13 @@ DESKTOP_UID=$(id -u "$DESKTOP_USER")
 [[ $DESKTOP_UID != 0 ]] || { echo 'Start this through sudo from the desktop user.' >&2; exit 1; }
 # Log after sudo has authenticated. Tee writes as the desktop user, so a log
 # symlink cannot make this root process overwrite a privileged file.
-exec > >(runuser -u "$DESKTOP_USER" -- tee -a "$PWD/session.log") 2>&1
+if [[ -z ${INVOCATION_ID:-} ]]; then
+    exec > >(runuser -u "$DESKTOP_USER" -- tee -a "$PWD/session.log") 2>&1
+fi
 trap 'echo "Setup failed at line $LINENO: $BASH_COMMAND" >&2' ERR
 test -x build/deck-usb
 
-# Discover the supported AMD DRD controller instead of assuming a PCI address.
-# Keep the hardware identity guard: binding an unrelated controller is unsafe.
+# Discover one supported AMD DRD controller; never assume a PCI address.
 pci_path=$(find_drd_controller); pci=${pci_path##*/}
 for bus in "$pci_path"/usb*; do
     [[ -d $bus ]] || continue
@@ -132,6 +106,15 @@ cleanup() {
         printf '%s' "$pci" > /sys/bus/pci/drivers/dwc3-pci/unbind
         printf '%s' "$pci" > "/sys/bus/pci/drivers/$original_driver/bind"
     fi
+    # Installed code and settings are root-owned. Keep validated settings across
+    # reboot; manual launches keep their existing temporary /run settings.
+    if [[ -n ${INVOCATION_ID:-} && -f /run/deckusb-video.conf ]]; then
+        read -r WIDTH HEIGHT FPS FORMAT < /run/deckusb-video.conf
+        if validate_video; then
+            printf '%s %s %s %s\n' "$WIDTH" "$HEIGHT" "$FPS" "$FORMAT" > video.conf.next
+            mv video.conf.next video.conf
+        fi
+    fi
     echo 'DeckUSB stopped; session USB resources removed.'
 }
 # Serialize launchers. Older senders did not hold this lock, so also check their
@@ -142,10 +125,20 @@ if [[ -e /run/deckusb || -e $g ]]; then
     if pgrep -x deck-usb >/dev/null || fuser /run/deckusb/control >/dev/null 2>&1; then
         echo 'DeckUSB is already running; stop that session first.' >&2; exit 1
     fi
-    [[ -e $g && $(cat "$g/idVendor") == 0x1209 && $(cat "$g/idProduct") == 0x0001 &&
-       $(cat "$g/strings/0x409/product") == 'DeckUSB Direct' ]] || {
-        echo 'Unrecognized stale USB state; leaving it untouched.' >&2; exit 1;
-    }
+    if [[ -e $g ]]; then
+        [[ $(cat "$g/idVendor") == 0x1209 && $(cat "$g/idProduct") == 0x0001 &&
+           $(cat "$g/strings/0x409/product") == 'DeckUSB Direct' ]] || {
+            echo 'Unrecognized stale USB state; leaving it untouched.' >&2; exit 1;
+        }
+    else
+        # Interrupted cleanup can remove configfs before the FunctionFS mount.
+        # Reclaim only our exact, unused mount in a root-owned runtime directory.
+        [[ ! -L /run/deckusb && $(stat -c %u /run/deckusb) == 0 &&
+           $(findmnt -rn -M /run/deckusb/ffs -o FSTYPE,SOURCE) == 'functionfs direct' ]] &&
+           ! fuser -m /run/deckusb/ffs >/dev/null 2>&1 || {
+            echo 'Unrecognized or active USB mount; leaving it untouched.' >&2; exit 1;
+        }
+    fi
     echo 'Removing the stopped DeckUSB session.'
     created=true; cleanup; set -e; created=false
     [[ ! -e /run/deckusb && ! -e $g ]] || { echo 'USB cleanup did not complete.' >&2; exit 1; }
@@ -190,6 +183,9 @@ if $network; then
     ln -s "$g/functions/ncm.usb0" "$g/configs/c.1/ncm.usb0"
 fi
 mode=test
+# Resume a saved session directly. A raw startup pattern cannot describe H.264
+# and previously made the viewer overwrite the saved codec with raw video.
+[[ ! -f /run/deckusb-video.conf && ! -f video.conf ]] || mode=live
 while [[ $mode != stop ]]; do
     case $mode in
       test|bench|live)

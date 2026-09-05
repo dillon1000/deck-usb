@@ -15,8 +15,13 @@ fi
 case "${1:-mac}" in
   test)
     bash tests/check-hardware.sh
+    bash tests/check-launch.sh
+    bash tests/check-capture.sh
+    python3 tests/check-desktop-size.py
     "${CXX:-c++}" "${includes[@]}" -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined tests/check.cpp -o build/check
     build/check
+    "${CXX:-c++}" "${includes[@]}" -std=c++20 -O3 -g -Wall -Wextra -Werror -fsanitize=address,undefined tests/check-convert.cpp -o build/check-convert
+    build/check-convert
     if [[ $(uname) == Darwin ]]; then
       clang++ "${includes[@]}" -std=c++20 -O1 -g -fobjc-arc -Wall -Wextra -Werror -fsanitize=address,undefined \
         tests/check-mac.mm -framework Cocoa -o build/check-mac
@@ -31,11 +36,14 @@ case "${1:-mac}" in
     ;;
   test-decoder)
     clang++ "${includes[@]}" -std=c++20 -O2 -fobjc-arc -Wall -Wextra -Werror -fsanitize=address,undefined \
-      tests/check-decoder.mm -framework Cocoa -framework VideoToolbox -framework CoreMedia -framework CoreVideo -o build/check-decoder
+      tests/check-decoder.mm -framework Cocoa -framework Metal -framework VideoToolbox -framework CoreMedia -framework CoreVideo -o build/check-decoder
     build/check-decoder "${@:2}"
     ;;
   deck)
     "${CXX:-g++}" "${includes[@]}" -std=c++20 -O3 -pthread -Wall -Wextra -Werror src/deck/deck.cpp -o build/deck-usb
+    # Both Deck models use Zen 2; optimize the per-pixel CPU conversion for it.
+    "${CXX:-g++}" "${includes[@]}" -std=c++20 -O3 -march=znver2 -Wall -Wextra -Werror \
+      src/deck/capture-x11.cpp -lX11 -lXext -o build/deck-capture
     ;;
   mac)
     # Link an existing libusb installation; do not install dependencies here.

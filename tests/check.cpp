@@ -1,11 +1,37 @@
 #include "audio-buffer.hpp"
 #include "protocol.hpp"
+#include "frame.hpp"
 #include "codec.hpp"
 #include <cassert>
 #include <iostream>
 #include <limits>
 using namespace deckusb;
 int main() {
+    {
+        auto buffers = std::make_shared<FrameBuffers>();
+        auto held = std::make_unique<Frame>(buffers);
+        held->pixels = buffers->acquire(64); held->pixels[0] = 73;
+        auto address = held->pixels.data();
+        auto moved = std::make_unique<Frame>(std::move(*held)); held.reset();
+        { Frame other(buffers); other.pixels = buffers->acquire(64);
+          assert(other.pixels.data() != address); }
+        assert(moved->pixels[0] == 73);
+        moved.reset();
+        auto first = buffers->acquire(64), second = buffers->acquire(64);
+        assert(first.data() == address || second.data() == address);
+        assert((first.data() == address ? first[0] : second[0]) == 73);
+        // Releasing after the caller drops the session pool remains safe.
+        Frame late(buffers); late.pixels = buffers->acquire(4096);
+        buffers.reset();
+    }
+    {
+        FrameBuffers buffers;
+        for (size_t size : {8u, 16u, 32u}) buffers.recycle(std::vector<uint8_t>(size));
+        std::vector<uint8_t> larger(64, 91); auto address = larger.data();
+        buffers.recycle(std::move(larger)); // Replace the smallest of three spares.
+        auto result = buffers.acquire(64);
+        assert(result.data() == address && result[63] == 91);
+    }
     assert(encodedPacketSize("#software: Lavf61\n") == 0);
     assert(encodedPacketSize("0, 1, 1, 1, 23600, 0xe594d211\n") == 23600);
     for (auto line : {"0,0,0,1,0,0x0\n", "0,0,0,1,9999999999,0x0\n", "0,0,0,1,4,0x0", "0,0,0,1,x,0x0\n"}) {
@@ -51,6 +77,14 @@ int main() {
     assert(linuxKey(123) == 105 && linuxKey(127) == 0 && linuxKey(999) == 0);
     c = Command{}; c.type = configure; c.x = 800; c.y = 500; c.value = 60; c.code = nv12;
     assert(valid(c)); c.x = 801; assert(!valid(c)); c.x = 800; c.value = 0; assert(!valid(c));
+    // Both 16:9 and 16:10 high-resolution selections must survive the same
+    // command and frame validation used on either end of the USB connection.
+    for (unsigned height : {1080u, 1200u}) {
+        c.x = 1920; c.y = height; c.value = 60; c.code = h264; assert(valid(c));
+        Header large; large.width = 1920; large.height = height;
+        large.bytes = frameBytes(large.width, large.height, nv12); validate(large);
+        large.format = h264; large.bytes = 100; validate(large);
+    }
     c.type = measure; c.value = 1; assert(valid(c)); c.value = 2; assert(!valid(c));
     assert(recommend(41.4).width == 800 && recommend(41.4).fps == 60);
     assert(recommend(38.9).width == 800 && recommend(38.9).fps == 60);

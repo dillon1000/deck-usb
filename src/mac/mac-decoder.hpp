@@ -1,26 +1,32 @@
 #pragma once
 #import <VideoToolbox/VideoToolbox.h>
 #include "codec.hpp"
-#include <cstring>
-#include <memory>
+#include "mac-frame.hpp"
 
 namespace deckusb {
-template<class T> using CFHandle = std::unique_ptr<std::remove_pointer_t<T>, decltype(&CFRelease)>;
 // One decoder per USB session, used only by its video reader. Decode synchronously
 // with no temporal processing, then release the sample before reading another.
 // Hardware is required: a silent software fallback would change the latency cost.
 class H264Decoder {
     CFHandle<CMVideoFormatDescriptionRef> description{nullptr, CFRelease};
     CFHandle<VTDecompressionSessionRef> session{nullptr, CFRelease};
+    CFHandle<CVMetalTextureCacheRef> textureCache{nullptr, CFRelease};
+    id<MTLDevice> device;
     std::vector<uint8_t> sps, pps;
     static void check(OSStatus status, const char* operation) {
         if (status) throw std::runtime_error(std::string(operation) + ": " + std::to_string(status));
     }
 public:
+    explicit H264Decoder(id<MTLDevice> gpu = MTLCreateSystemDefaultDevice()) : device(gpu) {}
     ~H264Decoder() { if (session) VTDecompressionSessionInvalidate(session.get()); }
-    std::shared_ptr<Frame> decode(std::shared_ptr<Frame> frame) {
-        if (frame->header.format != h264) return frame;
+    std::shared_ptr<DisplayFrame> decode(std::shared_ptr<Frame> frame) {
+        if (frame->header.format != h264) return std::make_shared<DisplayFrame>(std::move(*frame));
         uint64_t started = nowNs();
+        if (!textureCache) {
+            CVMetalTextureCacheRef cache = nullptr;
+            check(CVMetalTextureCacheCreate(kCFAllocatorDefault, nullptr, device, nullptr, &cache), "Metal image cache");
+            textureCache.reset(cache);
+        }
         auto units = splitH264(frame->pixels);
         std::vector<uint8_t> nextSPS, nextPPS, avcc;
         for (auto unit : units) {
@@ -45,7 +51,10 @@ public:
             if (dimensions.width != int(frame->header.width) || dimensions.height != int(frame->header.height))
                 throw std::runtime_error("H.264 dimensions disagree with USB header");
             NSDictionary* hardware = @{(__bridge NSString*)kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder: @YES};
-            NSDictionary* attributes = @{(__bridge NSString*)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)};
+            NSDictionary* attributes = @{
+                (__bridge NSString*)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
+                (__bridge NSString*)kCVPixelBufferMetalCompatibilityKey: @YES,
+                (__bridge NSString*)kCVPixelBufferIOSurfacePropertiesKey: @{}};
             VTDecompressionSessionRef decoder = nullptr;
             check(VTDecompressionSessionCreate(kCFAllocatorDefault, format, (__bridge CFDictionaryRef)hardware,
                 (__bridge CFDictionaryRef)attributes, nullptr, &decoder), "Hardware H.264 decoder");
@@ -75,25 +84,22 @@ public:
         if (!image || CVPixelBufferGetWidth(image) != frame->header.width || CVPixelBufferGetHeight(image) != frame->header.height ||
             CVPixelBufferGetPixelFormatType(image) != kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange || CVPixelBufferGetPlaneCount(image) != 2)
             throw std::runtime_error("Invalid decoded H.264 image");
-        frame->header.format = nv12;
-        frame->header.bytes = frameBytes(frame->header.width, frame->header.height, nv12);
-        frame->pixels.resize(frame->header.bytes);
-        check(CVPixelBufferLockBaseAddress(image, kCVPixelBufferLock_ReadOnly), "Lock decoded image");
-        // copy into the existing NV12 renderer. Use CVMetalTextureCache
-        // only if this measured row copy becomes a meaningful part of latency.
-        size_t offset = 0;
+        auto output = std::make_shared<DisplayFrame>(std::move(*frame));
+        output->surface = std::move(surface);
+        output->header.format = nv12;
+        output->header.bytes = frameBytes(output->header.width, output->header.height, nv12);
+        output->pixels.clear(); // The GPU reads the retained IOSurface, not this packet.
         for (unsigned plane = 0; plane < 2; ++plane) {
-            auto source = static_cast<const uint8_t*>(CVPixelBufferGetBaseAddressOfPlane(image, plane));
-            size_t stride = CVPixelBufferGetBytesPerRowOfPlane(image, plane);
-            unsigned rows = plane ? frame->header.height / 2 : frame->header.height;
-            for (unsigned y = 0; y < rows; ++y) {
-                memcpy(frame->pixels.data() + offset, source + y * stride, frame->header.width);
-                offset += frame->header.width;
-            }
+            CVMetalTextureRef texture = nullptr;
+            CVReturn status = CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault,
+                textureCache.get(), image, nullptr, plane ? MTLPixelFormatRG8Unorm : MTLPixelFormatR8Unorm,
+                output->header.width / (plane ? 2 : 1), output->header.height / (plane ? 2 : 1), plane, &texture);
+            (plane ? output->chroma : output->luma).reset(texture);
+            check(status, "Map decoded Metal plane");
+            if (!texture || !CVMetalTextureGetTexture(texture)) throw std::runtime_error("Missing decoded Metal plane");
         }
-        check(CVPixelBufferUnlockBaseAddress(image, kCVPixelBufferLock_ReadOnly), "Unlock decoded image");
-        frame->decodeMs = (nowNs() - started) / 1e6;
-        return frame;
+        output->decodeMs = (nowNs() - started) / 1e6;
+        return output;
     }
 };
 }

@@ -4,13 +4,17 @@
 std::atomic<bool> forwardingInput{false}, showingVideo{false}, mutingAudio{false};
 std::unique_ptr<USB> usb;
 std::unique_ptr<AudioOutput> audioOutput;
-// Enable display sync by default to prevent tearing.
+// New installations prevent tearing by default; a saved user choice overrides it.
 bool demo = false, syncDisplay = true, pipelinedUSB = true, useDisplayLink = false;
+// Optional per-frame timing writes to stderr; leave off during normal playback.
+bool tracePresentation = false;
 double sensitivity = 1.0;
 
 int main(int argc, const char** argv) {
     @autoreleasepool {
         try {
+            [NSUserDefaults.standardUserDefaults registerDefaults:@{@"syncDisplay": @YES}];
+            syncDisplay = [NSUserDefaults.standardUserDefaults boolForKey:@"syncDisplay"];
             double seconds = 0;
             bool list = false;
             for (int i=1; i<argc; ++i) {
@@ -18,6 +22,7 @@ int main(int argc, const char** argv) {
                 if (arg == "--demo") demo = true;
                 else if (arg == "--list") list = true;
                 else if (arg == "--display-link") useDisplayLink = true;
+                else if (arg == "--trace-present") tracePresentation = true;
                 else if (arg == "--serial-usb") pipelinedUSB = false;
                 else if (arg == "--vsync") syncDisplay = true;
                 else if (arg == "--no-vsync") syncDisplay = false;
@@ -25,7 +30,7 @@ int main(int argc, const char** argv) {
                     double value = std::stod(argv[++i]);
                     if (!std::isfinite(value) || value <= 0 || value > 3600) throw std::runtime_error("Invalid numeric option");
                     if (arg == "--bench") seconds = value; else sensitivity = value;
-                } else throw std::runtime_error("Usage: deck-usb [--list|--demo|--bench SECONDS] [--no-vsync] [--serial-usb] [--display-link] [--sensitivity N]");
+                } else throw std::runtime_error("Usage: deck-usb [--list|--demo|--bench SECONDS] [--no-vsync] [--serial-usb] [--display-link] [--trace-present] [--sensitivity N]");
             }
             if (!demo) {
                 usb = std::make_unique<USB>(pipelinedUSB);
