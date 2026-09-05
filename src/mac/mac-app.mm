@@ -1,4 +1,5 @@
 #include "mac.hpp"
+#include "mac-stats.hpp"
 #include "mac-decoder.hpp"
 #include <cmath>
 
@@ -163,6 +164,13 @@
 }
 - (void)tick {
     if (demo) return;
+    auto sensors = usb ? usb->deckStats() : DeckStats{};
+    if (sensors.sampledNs != lastSensorSample || !self.deckStats.toolTip) {
+        lastSensorSample = sensors.sampledNs;
+        self.deckStats.stringValue = deckStatsSummary(sensors);
+        self.deckStats.toolTip = deckStatsDetails(sensors);
+        self.deckStats.accessibilityLabel = self.deckStats.toolTip;
+    }
     if (!usb || !usb->running()) {
         self.graphConnection.stringValue = @"Reconnecting…"; self.liveRate.stringValue = @"—";
         self.graphNote.stringValue = @"Waiting for the USB connection.";
@@ -230,6 +238,7 @@
             auto setting = usb->setting();
             self.status.stringValue = [NSString stringWithFormat:@"●  Connected · %u × %u · %@", setting.width, setting.height, setting.format == h264 ? @"H.264" : @"Raw"];
             self.performance.stringValue = [NSString stringWithFormat:@"%.0f fps   ·   %.1f MB/s   ·   USB audio", (frames - lastFrames) / seconds, (bytes - lastBytes) / seconds / 1e6];
+            self.status.toolTip = self.status.stringValue; self.performance.toolTip = self.performance.stringValue;
             if (frames / 300 != lastFrames / 300)
                 fprintf(stderr, "Timing: Deck queue %.2f ms, USB payload %.2f ms, decode %.2f ms, Mac submit %.2f ms, present %.2f ms at %.1f fps; %s; %s\n", usb->deckQueueMilliseconds(), usb->payloadMilliseconds(), [self.view decodeDelay], [self.view submitDelay], [self.view presentationDelay], [self.view presentationFPS], usb->stats().c_str(), audioOutput ? audioOutput->stats().c_str() : "no audio");
             lastTime = now; lastFrames = frames; lastBytes = bytes;

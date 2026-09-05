@@ -173,13 +173,24 @@ static NSStackView* row(NSArray<NSView*>* views, CGFloat spacing = 10) {
     self.status = label(@"Waiting for your Deck", 11); self.status.textColor = NSColor.secondaryLabelColor;
     self.performance = label(@"", 11); self.performance.font = [NSFont monospacedDigitSystemFontOfSize:11 weight:NSFontWeightRegular];
     self.performance.textColor = NSColor.secondaryLabelColor;
+    self.deckStats = [NSTextField labelWithString:@"Deck stats unavailable"];
+    self.deckStats.font = [NSFont monospacedDigitSystemFontOfSize:11 weight:NSFontWeightRegular];
+    self.deckStats.textColor = NSColor.secondaryLabelColor; self.deckStats.alignment = NSTextAlignmentCenter;
+    // Center on the window, not on the space left by unequal side labels.
+    // Side text truncates first on narrow windows; full readings stay in tooltips.
+    for (NSTextField* field in @[self.status, self.performance, self.deckStats]) {
+        field.maximumNumberOfLines = 1; field.lineBreakMode = NSLineBreakByTruncatingTail;
+        [field setContentCompressionResistancePriority:field == self.deckStats ? 750 : 250 forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [field.widthAnchor constraintGreaterThanOrEqualToConstant:0].active = YES;
+    }
     self.infoButton = [NSButton buttonWithImage:symbol(@"info.circle") target:self action:@selector(showDetails:)];
     self.infoButton.bordered = NO; self.infoButton.toolTip = @"Connection details"; self.infoButton.accessibilityLabel = @"Connection details";
     auto footerRight = row(@[self.performance, self.infoButton], 12);
     auto footer = [NSView new]; footer.translatesAutoresizingMaskIntoConstraints = NO; [root addSubview:footer];
     self.footerHeight = [footer.heightAnchor constraintEqualToConstant:30];
     self.status.translatesAutoresizingMaskIntoConstraints = footerRight.translatesAutoresizingMaskIntoConstraints = NO;
-    [footer addSubview:self.status]; [footer addSubview:footerRight];
+    self.deckStats.translatesAutoresizingMaskIntoConstraints = NO;
+    [footer addSubview:self.status]; [footer addSubview:self.deckStats]; [footer addSubview:footerRight];
 
     NSVisualEffectView* background = [NSVisualEffectView new];
     background.material = NSVisualEffectMaterialWindowBackground;
@@ -228,6 +239,9 @@ static NSStackView* row(NSArray<NSView*>* views, CGFloat spacing = 10) {
         [footer.bottomAnchor constraintEqualToAnchor:root.bottomAnchor], self.footerHeight,
         [self.status.leadingAnchor constraintEqualToAnchor:footer.leadingAnchor constant:16], [self.status.centerYAnchor constraintEqualToAnchor:footer.centerYAnchor],
         [footerRight.trailingAnchor constraintEqualToAnchor:footer.trailingAnchor constant:-14], [footerRight.centerYAnchor constraintEqualToAnchor:footer.centerYAnchor],
+        [self.deckStats.centerXAnchor constraintEqualToAnchor:footer.centerXAnchor], [self.deckStats.centerYAnchor constraintEqualToAnchor:footer.centerYAnchor],
+        [self.deckStats.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.status.trailingAnchor constant:12],
+        [self.deckStats.trailingAnchor constraintLessThanOrEqualToAnchor:footerRight.leadingAnchor constant:-12],
         [self.view.topAnchor constraintEqualToAnchor:root.topAnchor], [self.view.bottomAnchor constraintEqualToAnchor:footer.topAnchor],
         [self.view.leadingAnchor constraintEqualToAnchor:root.leadingAnchor], [self.view.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
         [self.overlay.topAnchor constraintEqualToAnchor:self.view.topAnchor], [self.overlay.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],

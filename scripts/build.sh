@@ -22,6 +22,8 @@ case "${1:-mac}" in
     build/check
     "${CXX:-c++}" "${includes[@]}" -std=c++20 -O3 -g -Wall -Wextra -Werror -fsanitize=address,undefined tests/check-convert.cpp -o build/check-convert
     build/check-convert
+    "${CXX:-c++}" "${includes[@]}" -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined tests/check-telemetry.cpp -o build/check-telemetry
+    build/check-telemetry
     if [[ $(uname) == Darwin ]]; then
       clang++ "${includes[@]}" -std=c++20 -O1 -g -fobjc-arc -Wall -Wextra -Werror -fsanitize=address,undefined \
         tests/check-mac.mm -framework Cocoa -o build/check-mac

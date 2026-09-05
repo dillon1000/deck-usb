@@ -1,6 +1,7 @@
 #pragma once
 #include "protocol.hpp"
 #include "frame.hpp"
+#include "telemetry.hpp"
 #include "usb-video.hpp"
 #include <libusb.h>
 #include <atomic>
@@ -26,6 +27,7 @@ class USB {
     std::condition_variable commandsReady;
     std::deque<Command> commands;
     std::vector<double> roundTrips;
+    StatsCache sensorStats;
     std::atomic<uint64_t> byteCount{0}, frameCount{0}, dropCount{0};
     uint64_t started = 0;
     bool pipelined;
@@ -54,7 +56,7 @@ class USB {
     }
     void send(Command command) {
         int transferred = 0;
-        if (command.type == ping) command.nonce = nowNs();
+        if (command.type == ping) { command.nonce = nowNs(); command.code = telemetryRequest; }
         int result = libusb_bulk_transfer(handle, commandEndpoint, reinterpret_cast<uint8_t*>(&command),
             sizeof(command), &transferred, 250);
         if (result || transferred != sizeof(command))
@@ -168,12 +170,15 @@ public:
         });
         ackThread = thread([this] {
             while (!stopping) {
-                Pong pong; read(&pong, sizeof(pong), ackEndpoint);
+                StatsAck reply;
+                int transferred = 0;
+                int result = libusb_bulk_transfer(handle, ackEndpoint, reinterpret_cast<uint8_t*>(&reply), sizeof(reply), &transferred, 1000);
+                if (result) throw std::runtime_error(std::string("USB acknowledgment: ") + libusb_error_name(result));
                 uint64_t received = nowNs();
-                if (pong.magicValue != magic || pong.versionValue != version || pong.nonce > received)
-                    throw std::runtime_error("Invalid USB acknowledgment");
-                double rtt = (received - pong.nonce) / 1e6;
+                validate(reply, size_t(transferred), received);
+                double rtt = (received - reply.pong.nonce) / 1e6;
                 std::lock_guard lock(statsMutex);
+                if (transferred == sizeof(reply)) sensorStats.accept(reply.stats, received);
                 // ponytail: retain the latest 600 samples (one minute); use a ring
                 // only if this small, once-per-100-ms erase becomes measurable.
                 if (roundTrips.size() == 600) roundTrips.erase(roundTrips.begin());
@@ -234,6 +239,10 @@ public:
     }
     uint64_t bytes() const { return byteCount.load(); }
     uint64_t frames() const { return frameCount.load(); }
+    DeckStats deckStats() {
+        std::lock_guard lock(statsMutex);
+        return running() ? sensorStats.current(nowNs()) : DeckStats{};
+    }
     double payloadMilliseconds() const { return lastPayloadMs.load(); }
     double deckQueueMilliseconds() const { return lastDeckQueueMs.load(); }
     VideoSetting setting() const { return {width.load(), height.load(), fps.load(), format.load()}; }

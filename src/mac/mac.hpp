@@ -101,6 +101,7 @@ NSImage* symbol(NSString* name);
     double measuredMB;
     VideoSetting recommended, requested;
     TransferMeter liveMeter;
+    uint64_t lastSensorSample;
 }
 @property BOOL closing;
 @property NSButton* displayButton;
@@ -118,6 +119,7 @@ NSImage* symbol(NSString* name);
 @property NSTextField* connection;
 @property NSTextField* status;
 @property NSTextField* performance;
+@property NSTextField* deckStats;
 @property NSProgressIndicator* progress;
 @property NSButton* primary;
 @property NSButton* secondary;

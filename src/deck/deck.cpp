@@ -2,6 +2,7 @@
 #include "codec.hpp"
 #include "deck-input.hpp"
 #include "deck-config.hpp"
+#include "deck-stats.hpp"
 #include <array>
 #include <atomic>
 #include <cerrno>
@@ -164,6 +165,18 @@ int main(int argc, char** argv) try {
         }
     });
     Input input;
+    std::mutex sensorMutex;
+    DeckStats sensorStats;
+    // Poll at 1 Hz off the input/video threads. Only a small cached record is
+    // copied during a heartbeat, so slow sensor reads cannot delay a key press.
+    worker([&] {
+        DeckSampler sampler;
+        for (;;) {
+            auto sample = sampler.sample();
+            { std::lock_guard lock(sensorMutex); sensorStats = sample; }
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    });
     std::atomic<bool> cableTest{false};
     std::atomic<uint64_t> lastCommand{nowNs()};
     worker([&] {
@@ -194,8 +207,10 @@ int main(int argc, char** argv) try {
             else input.apply(c);
             lastCommand.store(received);
             if (c.type == ping) {
-                Pong pong; pong.nonce = c.nonce; pong.receiveNs = received; pong.sendNs = nowNs();
-                writeAll(acks, &pong, sizeof(pong));
+                StatsAck reply;
+                if (c.code == telemetryRequest) { std::lock_guard lock(sensorMutex); reply.stats = sensorStats; }
+                reply.pong.nonce = c.nonce; reply.pong.receiveNs = received; reply.pong.sendNs = nowNs();
+                writeAll(acks, &reply, c.code == telemetryRequest ? sizeof(reply) : sizeof(Pong));
             }
         }
     });

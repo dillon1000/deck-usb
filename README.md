@@ -90,6 +90,14 @@ throughput and recommends a setting with headroom for audio and timing variation
 USB 2 connections show a bandwidth warning; a cable label does not establish
 negotiated speed or throughput.
 
+The center of the bottom bar shows Deck CPU and GPU load and temperature,
+RAM use, battery charge and charging state, and fan speed. Hover for full units
+and readings. CPU load is a percentage of total CPU capacity; RAM use excludes
+available memory. Sensors are read once per second on a separate thread and
+sent through the existing USB heartbeat. Missing readings show a dash; samples
+older than three seconds show as unavailable. Older senders still play normally
+but need an update to provide these stats. The viewer does not change fan control.
+
 - Command+, opens Display settings; Command+T tests the cable.
 - Command+I shows live throughput, frame rate, control RTT, and audio buffering.
 - Command+F toggles full screen; Command+Q quits.
