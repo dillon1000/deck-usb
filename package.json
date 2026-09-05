@@ -2,10 +2,10 @@
   "name": "deck-usb",
   "private": true,
   "scripts": {
-    "build": "bash build.sh mac",
-    "build:deck": "bash build.sh deck",
-    "test": "bash build.sh test",
-    "test:decoder": "bash build.sh test-decoder",
+    "build": "bash scripts/build.sh mac",
+    "build:deck": "bash scripts/build.sh deck",
+    "test": "bash scripts/build.sh test",
+    "test:decoder": "bash scripts/build.sh test-decoder",
     "start": "build/DeckUSB.app/Contents/MacOS/deck-usb"
   }
 }

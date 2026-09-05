@@ -23,7 +23,7 @@ pnpm start
 ```
 
 The Mac app is `build/DeckUSB.app`. Build the sender on Linux with
-`pnpm build:deck`, or `bash build.sh deck`. The resulting `build/deck-usb` must
+`pnpm build:deck`, or `bash scripts/build.sh deck`. The resulting `build/deck-usb` must
 match the Deck's CPU architecture and installed runtime. No prebuilt binary is
 included. Mac and Deck must use matching protocol versions.
 
@@ -34,11 +34,11 @@ session. The Deck needs Bash, FFmpeg with x11grab, PulseAudio-compatible command
 line tools, and Linux FunctionFS, configfs, and uinput support. Hardware H.264
 also requires FFmpeg VAAPI support and an AMD render device.
 
-Copy `deck.sh`, `hardware.sh`, `audio.sh`, and the Linux `build/deck-usb` into the
-same directory layout on the Deck. From that directory, run:
+Copy the `scripts/` folder and the Linux `build/deck-usb` to the Deck, keeping
+the same folder layout. From that directory, run:
 
 ```sh
-sudo bash ./deck.sh
+sudo bash ./scripts/deck.sh
 ```
 
 The script gets the desktop user from sudo and reads display credentials from
@@ -46,7 +46,7 @@ the user's session. Capture runs as that user; USB setup and input injection nee
 root. Keep the terminal open. To stop from another terminal in the same directory:
 
 ```sh
-bash ./deck.sh stop
+bash ./scripts/deck.sh stop
 ```
 
 Stopping releases input, restores the prior audio output, and removes temporary
@@ -104,14 +104,25 @@ less USB traffic. Cable tests always measure the raw transfer path.
 Audio captures the temporary output's monitor, not a microphone, as stereo
 48 kHz PCM. The Mac adapts buffering to clock drift and interruptions. Startup
 and capture transitions can interrupt sound. No fixed latency or game-FPS cost
-is guaranteed; see PERFORMANCE.md for measurement guidance.
+is guaranteed; see [performance guidance](docs/PERFORMANCE.md) for measurement guidance.
 
 ## Source and checks
 
-`protocol.hpp` defines framing and limits. `deck.cpp` owns the sender, with
-input, I/O, and configuration helpers in headers. `usb.hpp` and `usb-video.hpp`
-implement host transport. The native viewer shares declarations in `mac.hpp`;
-window controls, rendering, decoding, and audio are separate implementation files.
+```text
+src/
+  mac/       Native viewer, USB transport, decoding, and audio
+  deck/      Linux sender, input injection, and configuration
+  shared/    Wire protocol and codec framing
+scripts/     Build, Deck startup, audio capture, and hardware discovery
+tests/       Protocol, transport, input, decoder, and discovery checks
+assets/      Viewer artwork
+docs/        Performance measurement guidance
+build/       Generated binaries and app bundle (not tracked)
+```
+
+Shared headers stay in `src/shared`; platform headers stay next to their
+implementation. Scripts resolve paths from the project root, so pnpm commands
+work as before. The root contains project metadata and this README.
 
 `pnpm test` checks protocol limits, malformed packets, audio buffering, hardware
 discovery, modifiers on macOS, and USB transfer ordering when libusb is available.

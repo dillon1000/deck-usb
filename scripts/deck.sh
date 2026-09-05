@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd -- "$(dirname -- "$0")"
-source ./hardware.sh
+cd -- "$(dirname -- "$0")/.."
+source ./scripts/hardware.sh
 
 # The desktop user owns the FIFO. Stopping needs neither sudo nor an OSK Control key.
 if [[ ${1:-} == stop ]]; then
@@ -67,17 +67,17 @@ if [[ ${1:-} == stream ]]; then
             -framerate "$FPS" -i "$display" "${encoder[@]}" \
             | ./build/deck-usb "${args[@]}" --audio-fd 3 3< <(
                 runuser -u "$DESKTOP_USER" -- env XDG_RUNTIME_DIR="/run/user/$DESKTOP_UID" \
-                    bash "$PWD/audio.sh")
+                    bash "$PWD/scripts/audio.sh")
     else
         exec ./build/deck-usb "${args[@]}" "--$mode"
     fi
     exit
 fi
 
-[[ $EUID == 0 ]] || { echo 'Run: sudo bash deck.sh [--usb-network]' >&2; exit 1; }
+[[ $EUID == 0 ]] || { echo 'Run: sudo bash scripts/deck.sh [--usb-network]' >&2; exit 1; }
 network=false
 [[ ${1:-} != --usb-network ]] || network=true
-[[ $# == 0 || ( $# == 1 && $network == true ) ]] || { echo 'Usage: sudo bash deck.sh [--usb-network]' >&2; exit 2; }
+[[ $# == 0 || ( $# == 1 && $network == true ) ]] || { echo 'Usage: sudo bash scripts/deck.sh [--usb-network]' >&2; exit 2; }
 export WIDTH=${WIDTH:-1280} HEIGHT=${HEIGHT:-800} FPS=${FPS:-60} FORMAT=${FORMAT:-nv12}
 validate_video
 export DESKTOP_USER=${SUDO_USER:?Start through sudo from the desktop user}
@@ -211,7 +211,7 @@ while [[ $mode != stop ]]; do
         mount -t functionfs direct /run/deckusb/ffs
         ln -s "$g/functions/ffs.direct" "$g/configs/c.1/ffs.direct"
         rm -f /run/deckusb/ready
-        setsid bash "$PWD/deck.sh" stream "$mode" &
+        setsid bash "$PWD/scripts/deck.sh" stream "$mode" &
         stream_pid=$!
         for ((attempt=0; attempt<100; attempt++)); do
             [[ ! -s /run/deckusb/ready ]] || break

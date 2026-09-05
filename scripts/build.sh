@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd -- "$(dirname -- "$0")"
+cd -- "$(dirname -- "$0")/.."
+# Resolve source headers from the project root, independent of the caller directory.
+includes=(-Isrc/shared -Isrc/mac -Isrc/deck)
 mkdir -p build
 # Resolve libusb from its package metadata or an explicit installation prefix.
 usb_prefix=${LIBUSB_PREFIX:-}
@@ -12,28 +14,28 @@ if [[ -z $usb_prefix ]] && command -v brew >/dev/null; then
 fi
 case "${1:-mac}" in
   test)
-    bash check-hardware.sh
-    "${CXX:-c++}" -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined check.cpp -o build/check
+    bash tests/check-hardware.sh
+    "${CXX:-c++}" "${includes[@]}" -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined tests/check.cpp -o build/check
     build/check
     if [[ $(uname) == Darwin ]]; then
-      clang++ -std=c++20 -O1 -g -fobjc-arc -Wall -Wextra -Werror -fsanitize=address,undefined \
-        check-mac.mm -framework Cocoa -o build/check-mac
+      clang++ "${includes[@]}" -std=c++20 -O1 -g -fobjc-arc -Wall -Wextra -Werror -fsanitize=address,undefined \
+        tests/check-mac.mm -framework Cocoa -o build/check-mac
       build/check-mac
     fi
     # The transfer check supplies fake libusb functions; no USB hardware is used.
     if [[ -f "$usb_prefix/include/libusb-1.0/libusb.h" ]]; then
-      "${CXX:-c++}" -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined \
-        -I"$usb_prefix/include/libusb-1.0" check-usb.cpp -o build/check-usb
+      "${CXX:-c++}" "${includes[@]}" -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined \
+        -I"$usb_prefix/include/libusb-1.0" tests/check-usb.cpp -o build/check-usb
       build/check-usb
     fi
     ;;
   test-decoder)
-    clang++ -std=c++20 -O2 -fobjc-arc -Wall -Wextra -Werror -fsanitize=address,undefined \
-      check-decoder.mm -framework Cocoa -framework VideoToolbox -framework CoreMedia -framework CoreVideo -o build/check-decoder
+    clang++ "${includes[@]}" -std=c++20 -O2 -fobjc-arc -Wall -Wextra -Werror -fsanitize=address,undefined \
+      tests/check-decoder.mm -framework Cocoa -framework VideoToolbox -framework CoreMedia -framework CoreVideo -o build/check-decoder
     build/check-decoder "${@:2}"
     ;;
   deck)
-    "${CXX:-g++}" -std=c++20 -O3 -pthread -Wall -Wextra -Werror deck.cpp -o build/deck-usb
+    "${CXX:-g++}" "${includes[@]}" -std=c++20 -O3 -pthread -Wall -Wextra -Werror src/deck/deck.cpp -o build/deck-usb
     ;;
   mac)
     # Link an existing libusb installation; do not install dependencies here.
@@ -41,8 +43,8 @@ case "${1:-mac}" in
     app=build/DeckUSB.app/Contents
     mkdir -p "$app/MacOS" "$app/Frameworks" "$app/Resources"
     cp assets/deck.svg "$app/Resources/deck.svg"
-    clang++ -std=c++20 -O3 -fobjc-arc -pthread -Wall -Wextra -Werror \
-      -I"$usb_prefix/include/libusb-1.0" mac.mm mac-app.mm mac-ui.mm mac-view.mm mac-audio.mm \
+    clang++ "${includes[@]}" -std=c++20 -O3 -fobjc-arc -pthread -Wall -Wextra -Werror \
+      -I"$usb_prefix/include/libusb-1.0" src/mac/mac.mm src/mac/mac-app.mm src/mac/mac-ui.mm src/mac/mac-view.mm src/mac/mac-audio.mm \
       "$usb_prefix/lib/libusb-1.0.a" \
       -framework Cocoa -framework Metal -framework MetalKit -framework QuartzCore \
       -framework VideoToolbox -framework CoreMedia -framework CoreVideo \
@@ -61,5 +63,5 @@ case "${1:-mac}" in
 PLIST
     codesign --force --sign - "build/DeckUSB.app"
     ;;
-  *) echo 'Usage: bash build.sh mac|deck|test' >&2; exit 2 ;;
+  *) echo 'Usage: bash scripts/build.sh mac|deck|test|test-decoder' >&2; exit 2 ;;
 esac

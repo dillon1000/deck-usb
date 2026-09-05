@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd -- "$(dirname -- "$0")"
-source ./hardware.sh
+cd -- "$(dirname -- "$0")/.."
+source ./scripts/hardware.sh
 root=$(mktemp -d)
 trap 'rm -rf -- "$root"' EXIT
 mkdir -p "$root/pci" "$root/drm" "$root/drivers/amdgpu"
